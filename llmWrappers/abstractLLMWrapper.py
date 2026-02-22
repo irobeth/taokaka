@@ -123,8 +123,14 @@ class AbstractLLMWrapper:
             if self.llmState.next_cancelled:
                 continue
 
+            # Standard OpenAI streaming terminator (sent by LM Studio and others)
+            if event.data == "[DONE]":
+                break
+
             payload = json.loads(event.data)
-            chunk = payload['choices'][0]['delta']['content']
+            chunk = payload['choices'][0]['delta'].get('content') or ''
+            if not chunk:
+                continue
             AI_message += chunk
             self.signals.sio_queue.put(("next_chunk", chunk))
 

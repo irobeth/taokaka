@@ -14,7 +14,7 @@ PATIENCE = 60
 
 # URL of LLM API Endpoint
 # LLM_ENDPOINT = ""
-LLM_ENDPOINT = "http://127.0.0.1:5000"
+LLM_ENDPOINT = "http://127.0.0.1:1234"
 
 # Twitch chat messages above this length will be ignored
 TWITCH_MAX_MESSAGE_LENGTH = 300
