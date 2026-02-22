@@ -11,6 +11,7 @@ class Signals:
         self._tts_ready = False
         self._stt_ready = False
         self._recentTwitchMessages = []
+        self._recentDiscordMessages = []
         self._history = []
 
         # This flag indicates to all threads that they should immediately terminate
@@ -99,6 +100,15 @@ class Signals:
     def recentTwitchMessages(self, value):
         self._recentTwitchMessages = value
         self.sio_queue.put(('recent_twitch_messages', value))
+
+    @property
+    def recentDiscordMessages(self):
+        return self._recentDiscordMessages
+
+    @recentDiscordMessages.setter
+    def recentDiscordMessages(self, value):
+        self._recentDiscordMessages = value
+        self.sio_queue.put(('recent_discord_messages', value))
 
     @property
     def history(self):

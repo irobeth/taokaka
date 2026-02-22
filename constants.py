@@ -19,9 +19,19 @@ LLM_ENDPOINT = "http://127.0.0.1:5000"
 # Twitch chat messages above this length will be ignored
 TWITCH_MAX_MESSAGE_LENGTH = 300
 
-# Discord channel for bot to join
+# Twitch channel for bot to join
 #UNIQUE#
 TWITCH_CHANNEL = ""
+
+# Discord text channel ID for the bot to read messages from (set to 0 to read all channels)
+#UNIQUE#
+DISCORD_TEXT_CHANNEL_ID = 0
+
+# Discord messages above this length will be ignored
+DISCORD_MAX_MESSAGE_LENGTH = 300
+
+# When True, Discord voice is used as the primary audio input instead of the local microphone
+DISCORD_PRIMARY_INPUT = False
 
 # Voice reference file for TTS
 #UNIQUE#

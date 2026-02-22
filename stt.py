@@ -1,7 +1,7 @@
 import logging
 import time
 from RealtimeSTT import AudioToTextRecorder
-from constants import *
+from constants import INPUT_DEVICE_INDEX, DISCORD_PRIMARY_INPUT
 
 
 class STT:
@@ -36,7 +36,7 @@ class STT:
         recorder_config = {
             'spinner': False,
             'language': 'en',
-            'use_microphone': True,
+            'use_microphone': not DISCORD_PRIMARY_INPUT,
             'input_device_index': INPUT_DEVICE_INDEX,
             'silero_sensitivity': 0.6,
             'silero_use_onnx': True,
