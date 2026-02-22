@@ -58,10 +58,10 @@ PRIMARY_MONITOR = 0
 
 # The model you are using, to calculate how many tokens the current message is
 # Ensure this is correct! Used for token count estimation
-MODEL = "meta-llama/Meta-Llama-3-8B"
+MODEL = "nvidia/nemotron-3-nano"
 
 # Context size (maximum number of tokens in the prompt) Will target upto 90% usage of this limit
-CONTEXT_SIZE = 8192
+CONTEXT_SIZE = 75000
 
 # This is your name
 #UNIQUE#
