@@ -1,9 +1,8 @@
-import os
 import mss, cv2, base64
 import numpy as np
-from transformers import AutoTokenizer
 from constants import *
 from llmWrappers.abstractLLMWrapper import AbstractLLMWrapper
+from llmWrappers.textLLMWrapper import _SimpleTokenizer
 
 
 class ImageLLMWrapper(AbstractLLMWrapper):
@@ -13,7 +12,7 @@ class ImageLLMWrapper(AbstractLLMWrapper):
         self.SYSTEM_PROMPT = SYSTEM_PROMPT
         self.LLM_ENDPOINT = MULTIMODAL_ENDPOINT
         self.CONTEXT_SIZE = MULTIMODAL_CONTEXT_SIZE
-        self.tokenizer = AutoTokenizer.from_pretrained(MULTIMODAL_MODEL, token=os.getenv("HF_TOKEN"), trust_remote_code=True)
+        self.tokenizer = _SimpleTokenizer()
 
         self.MSS = None
 

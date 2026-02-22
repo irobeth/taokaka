@@ -1,8 +1,12 @@
-import os
-
-from transformers import AutoTokenizer
 from constants import *
 from llmWrappers.abstractLLMWrapper import AbstractLLMWrapper
+
+
+class _SimpleTokenizer:
+    """Estimates token count at ~4 chars/token — good enough for context management."""
+    def apply_chat_template(self, messages, tokenize=True, return_tensors=None):
+        text = "".join(m.get("content", "") for m in messages)
+        return [[0] * max(1, len(text) // 4)]
 
 
 class TextLLMWrapper(AbstractLLMWrapper):
@@ -12,7 +16,7 @@ class TextLLMWrapper(AbstractLLMWrapper):
         self.SYSTEM_PROMPT = SYSTEM_PROMPT
         self.LLM_ENDPOINT = LLM_ENDPOINT
         self.CONTEXT_SIZE = CONTEXT_SIZE
-        self.tokenizer = AutoTokenizer.from_pretrained(MODEL, token=os.getenv("HF_TOKEN"))
+        self.tokenizer = _SimpleTokenizer()
 
     def prepare_payload(self):
         return {
