@@ -39,7 +39,7 @@ VOICE_REFERENCE = "neuro.wav"
 
 # Exact transcription of what is spoken in the voice reference file (required by F5-TTS)
 #UNIQUE#
-VOICE_REFERENCE_TEXT = ""
+VOICE_REFERENCE_TEXT = "I confirm that I am the authorized speaker and that this recording is being made with my full knowledge and consent. Today is February nineteenth, two thousand twenty-six, and I am speaking clearly and naturally for identification purposes. My voice may vary slightly in tone or pace, but this sample represents my normal manner of speaking in everyday conversation. I understand that this recording may be used to create and store a voiceprint for secure verification in the future."
 
 # MULTIMODAL SPECIFIC SECTION: Not needed when not using multimodal capabilities
 
