@@ -11,7 +11,7 @@ class TTS:
         self.enabled = True
 
         engine = CoquiEngine(
-            use_deepspeed=True,
+            use_deepspeed=False,
             voice="./voices/" + VOICE_REFERENCE,
             speed=1.1,
         )
