@@ -6,8 +6,8 @@
 # Microphone/Speaker device indices
 # Use utils/listAudioDevices.py to find the correct device ID
 #UNIQUE#
-INPUT_DEVICE_INDEX = 2
-OUTPUT_DEVICE_INDEX = 3
+INPUT_DEVICE_INDEX = 1
+OUTPUT_DEVICE_INDEX = 0
 
 # How many seconds to wait before prompting AI
 PATIENCE = 60
