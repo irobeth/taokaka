@@ -33,9 +33,13 @@ DISCORD_MAX_MESSAGE_LENGTH = 300
 # When True, Discord voice is used as the primary audio input instead of the local microphone
 DISCORD_PRIMARY_INPUT = False
 
-# Voice reference file for TTS
+# Voice reference file for TTS (must be 24kHz mono WAV, 5-30 seconds)
 #UNIQUE#
 VOICE_REFERENCE = "neuro.wav"
+
+# Exact transcription of what is spoken in the voice reference file (required by F5-TTS)
+#UNIQUE#
+VOICE_REFERENCE_TEXT = ""
 
 # MULTIMODAL SPECIFIC SECTION: Not needed when not using multimodal capabilities
 

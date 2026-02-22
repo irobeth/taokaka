@@ -1,49 +1,75 @@
+import os
 import time
-from RealtimeTTS import TextToAudioStream, CoquiEngine
-from constants import *
+import tempfile
+import threading
+
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+
+from f5_tts_mlx.generate import generate
+from constants import OUTPUT_DEVICE_INDEX, VOICE_REFERENCE, VOICE_REFERENCE_TEXT
+
+_REF_AUDIO_PATH = os.path.join("voices", VOICE_REFERENCE)
 
 
 class TTS:
     def __init__(self, signals):
-        self.stream = None
         self.signals = signals
-        self.API = self.API(self)
         self.enabled = True
+        self._stop_event = threading.Event()
+        self.API = self.API(self)
 
-        engine = CoquiEngine(
-            use_deepspeed=False,
-            voice="./voices/" + VOICE_REFERENCE,
-            speed=1.1,
-        )
-        tts_config = {
-            'on_audio_stream_start': self.audio_started,
-            'on_audio_stream_stop': self.audio_ended,
-            'output_device_index': OUTPUT_DEVICE_INDEX,
-        }
-        self.stream = TextToAudioStream(engine, **tts_config)
+        print("TTS Ready")
         self.signals.tts_ready = True
 
     def play(self, message):
-        if not self.enabled:
-            return
-
-        # If the message is only whitespace, don't attempt to play it
-        if not message.strip():
+        if not self.enabled or not message.strip():
             return
 
         self.signals.sio_queue.put(("current_message", message))
-        self.stream.feed(message)
-        self.stream.play_async()
+        self._stop_event.clear()
+        threading.Thread(target=self._generate_and_play, args=(message,), daemon=True).start()
+
+    def _generate_and_play(self, message):
+        self.signals.AI_speaking = True
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                tmp_path = f.name
+
+            generate(
+                generation_text=message,
+                ref_audio_path=_REF_AUDIO_PATH,
+                ref_audio_text=VOICE_REFERENCE_TEXT or None,
+                output_path=tmp_path,
+            )
+
+            audio, sr = sf.read(tmp_path, dtype="float32")
+            if audio.ndim > 1:
+                audio = audio[:, 0]  # take first channel if stereo
+
+            chunk_size = 2048
+            with sd.OutputStream(samplerate=sr, channels=1, device=OUTPUT_DEVICE_INDEX) as stream:
+                for i in range(0, len(audio), chunk_size):
+                    if self._stop_event.is_set():
+                        break
+                    chunk = audio[i:i + chunk_size]
+                    # Pad the final chunk to avoid PortAudio underrun
+                    if len(chunk) < chunk_size:
+                        chunk = np.pad(chunk, (0, chunk_size - len(chunk)))
+                    stream.write(chunk.reshape(-1, 1))
+
+        except Exception as e:
+            print(f"TTS error: {e}")
+        finally:
+            self.signals.last_message_time = time.time()
+            self.signals.AI_speaking = False
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
     def stop(self):
-        self.stream.stop()
-        self.signals.AI_speaking = False
-
-    def audio_started(self):
-        self.signals.AI_speaking = True
-
-    def audio_ended(self):
-        self.signals.last_message_time = time.time()
+        self._stop_event.set()
         self.signals.AI_speaking = False
 
     class API:
