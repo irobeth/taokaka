@@ -25,7 +25,7 @@ TWITCH_CHANNEL = ""
 
 # Discord text channel ID for the bot to read messages from (set to 0 to read all channels)
 #UNIQUE#
-DISCORD_TEXT_CHANNEL_ID = 0
+DISCORD_TEXT_CHANNEL_ID = 996245873816248360
 
 # Discord messages above this length will be ignored
 DISCORD_MAX_MESSAGE_LENGTH = 300
