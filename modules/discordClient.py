@@ -2,15 +2,19 @@ import os
 import asyncio
 from dotenv import load_dotenv
 import discord
-from constants import DISCORD_TEXT_CHANNEL_ID, DISCORD_MAX_MESSAGE_LENGTH
+from constants import DISCORD_MAX_MESSAGE_LENGTH
 from modules.module import Module
 from streamingSink import StreamingSink
+from discordSTT import DiscordSTT
 
 
 class DiscordClient(Module):
-    def __init__(self, signals, stt, enabled=True):
+    def __init__(self, signals, stt, tts, interface, enabled=True):
         super().__init__(signals, enabled)
         self.stt = stt
+        self.tts = tts
+        self.interface = interface
+        self.discord_stt = None
         self.API = self.API(self)
 
         # Appears after Twitch chat (150) but before custom prompts (200)
@@ -41,17 +45,20 @@ class DiscordClient(Module):
         load_dotenv()
         token = os.getenv("DISCORD_TOKEN")
         if not token:
-            print("Discord: DISCORD_TOKEN not set in .env — skipping.")
+            self.interface.log("DISCORD_TOKEN not set in .env — skipping.", source="Discord")
             return
 
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.members = True  # requires Server Members Intent in Discord dev portal
         bot = discord.Bot(intents=intents)
         connections = {}
+        monitored_channels = {}  # guild_id -> text channel id
+        quiet_guilds = set()      # guild_ids running in quiet mode
 
         @bot.event
         async def on_ready():
-            print(f"Discord: {bot.user} is online.")
+            self.interface.log(f"{bot.user} is online.", source="Discord")
 
         # --- Text channel messages ---
 
@@ -61,13 +68,13 @@ class DiscordClient(Module):
                 return
             if message.author == bot.user:
                 return
-            # Filter by channel if a specific ID is configured
-            if DISCORD_TEXT_CHANNEL_ID and message.channel.id != DISCORD_TEXT_CHANNEL_ID:
+            # Only listen in the channel where /start was invoked for this guild
+            if message.guild is None or monitored_channels.get(message.guild.id) != message.channel.id:
                 return
             if not message.content or len(message.content) > DISCORD_MAX_MESSAGE_LENGTH:
                 return
 
-            print(f"Discord [{message.channel.name}] {message.author.display_name}: {message.content}")
+            self.interface.log(f"[{message.channel.name}] {message.author.display_name}: {message.content}", source="Discord")
 
             msgs = self.signals.recentDiscordMessages
             if len(msgs) >= 10:
@@ -83,28 +90,75 @@ class DiscordClient(Module):
             guild_id = sink.vc.guild.id
             await sink.vc.disconnect()
             connections.pop(guild_id, None)
-            await channel.send("Left the voice channel.")
+            monitored_channels.pop(guild_id, None)
+            quiet = guild_id in quiet_guilds
+            quiet_guilds.discard(guild_id)
+            self.signals.discord_vc = None
+            self.interface.log("Left the voice channel.", source="Discord")
+            if not quiet:
+                await channel.send("Left the voice channel.")
 
         @bot.slash_command(name="ping", description="Check the bot's latency")
         async def ping(ctx):
             await ctx.respond(f"Pong! `{bot.latency * 1000:.1f} ms`")
 
+        @bot.slash_command(name="patience", description="Set how many seconds Taokaka waits before speaking unprompted")
+        async def set_patience(ctx: discord.ApplicationContext, seconds: int):
+            if seconds < 1:
+                return await ctx.respond("Patience must be at least 1 second.")
+            self.signals.patience = seconds
+            await ctx.respond(f"Patience set to **{seconds}s**.")
+
+        @bot.slash_command(name="ttsengine", description="Switch TTS engine (f5 = voice clone, kokoro = fast preset)")
+        async def ttsengine(ctx: discord.ApplicationContext,
+                            engine: discord.Option(str, "Engine to use", choices=["f5", "kokoro"])):
+            self.signals.tts_engine = engine
+            label = "F5-TTS (voice clone)" if engine == "f5" else "Kokoro ONNX (fast preset)"
+            await ctx.respond(f"TTS engine switched to **{label}**.")
+
+        @bot.slash_command(name="echo", description="Make Taokaka say something immediately (TTS test)")
+        async def echo(ctx: discord.ApplicationContext, text: str):
+            await ctx.respond(f"Playing: *{text}*")
+            self.tts.play(text)
+
+        @bot.slash_command(name="speak", description="Make Taokaka speak immediately")
+        async def speak(ctx: discord.ApplicationContext):
+            self.signals.last_message_time = 0.0
+            await ctx.respond("Nudging Taokaka…")
+
         @bot.slash_command(name="start", description="Bot joins your voice channel and listens")
-        async def start(ctx: discord.ApplicationContext):
+        async def start(ctx: discord.ApplicationContext,
+                        quiet: discord.Option(bool, "Suppress status messages in channel", default=False)):
             voice = ctx.author.voice
             if not voice:
-                return await ctx.respond("You're not in a voice channel.")
+                return await ctx.respond("You're not in a voice channel.", ephemeral=True)
             if ctx.guild.id in connections:
-                return await ctx.respond("Already recording in this server.")
+                return await ctx.respond("Already recording in this server.", ephemeral=True)
+
+            # Lazily initialize per-user Discord STT (keeps model across reconnects)
+            if self.discord_stt is None:
+                self.discord_stt = DiscordSTT(self.signals, self.interface, self.stt.process_text)
+                self.discord_stt.init_model()
 
             vc = await voice.channel.connect()
             connections[ctx.guild.id] = vc
+            monitored_channels[ctx.guild.id] = ctx.channel.id
+            if quiet:
+                quiet_guilds.add(ctx.guild.id)
+            self.signals.discord_vc = vc
             vc.start_recording(
-                StreamingSink(self.signals, self.stt),
+                StreamingSink(self.signals, self.discord_stt),
                 finished_callback,
                 ctx.channel,
             )
-            await ctx.respond(f"Joined **{voice.channel.name}** and listening.")
+
+            msg = f"Joined **{voice.channel.name}** and monitoring **#{ctx.channel.name}**."
+            self.interface.log(msg, source="Discord")
+            await ctx.respond(msg, ephemeral=quiet)
+
+        @bot.slash_command(name="sq", description="Alias for /start quiet")
+        async def sq(ctx: discord.ApplicationContext):
+            await start(ctx, quiet=True)
 
         @bot.slash_command(name="stop", description="Bot leaves the voice channel")
         async def stop(ctx: discord.ApplicationContext):

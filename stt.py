@@ -5,18 +5,22 @@ from constants import INPUT_DEVICE_INDEX, DISCORD_PRIMARY_INPUT
 
 
 class STT:
-    def __init__(self, signals):
+    def __init__(self, signals, interface):
         self.recorder = None
         self.signals = signals
+        self.interface = interface
         self.API = self.API(self)
         self.enabled = True
 
-    def process_text(self, text):
+    def process_text(self, text, speaker=None):
         if not self.enabled:
             return
 
-        print("STT OUTPUT: " + text)
-        self.signals.history.append({"role": "user", "content": text})
+        if speaker is None:
+            speaker = self.signals.active_voice_user
+        attributed = f"{speaker}: {text}" if speaker else text
+        self.interface.log(attributed, source="STT")
+        self.signals.history.append({"role": "user", "content": attributed})
 
         self.signals.last_message_time = time.time()
         if not self.signals.AI_speaking:
@@ -32,9 +36,10 @@ class STT:
         self.recorder.feed_audio(data)
 
     def listen_loop(self):
-        print("STT Starting")
+        self.interface.log("Starting", source="STT")
         recorder_config = {
             'spinner': False,
+            'model': 'distil-large-v3',
             'language': 'en',
             'use_microphone': not DISCORD_PRIMARY_INPUT,
             'input_device_index': INPUT_DEVICE_INDEX,
@@ -54,7 +59,7 @@ class STT:
 
         with AudioToTextRecorder(**recorder_config) as recorder:
             self.recorder = recorder
-            print("STT Ready")
+            self.interface.log("Ready", source="STT")
             self.signals.stt_ready = True
             while not self.signals.terminate:
                 if not self.enabled:

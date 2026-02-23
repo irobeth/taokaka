@@ -1,25 +1,31 @@
-import threading
 from discord.sinks import Sink
 from pydub import AudioSegment
 
-# How many milliseconds of audio to buffer per user before sending to STT.
-# Discord delivers 20ms packets; batching reduces STT choppiness.
-_BUFFER_MS = 500
 _TARGET_SAMPLE_RATE = 16000
-_BUFFER_BYTES = int(_TARGET_SAMPLE_RATE * (_BUFFER_MS / 1000) * 2)  # 16-bit = 2 bytes/sample
 
 
 class StreamingSink(Sink):
     """Receives per-user PCM audio from a Discord voice channel, converts it
-    from 48 kHz stereo to 16 kHz mono, buffers 500 ms worth of audio per user,
-    then forwards it to the STT module."""
+    from 48 kHz stereo to 16 kHz mono, then forwards it to DiscordSTT with
+    speaker identity attached."""
 
-    def __init__(self, signals, stt, *, filters=None):
+    def __init__(self, signals, discord_stt, *, filters=None):
         super().__init__(filters=filters)
         self.signals = signals
-        self.stt = stt
-        self._buffers: dict[int, bytes] = {}
-        self._lock = threading.Lock()
+        self.discord_stt = discord_stt
+        self._name_cache: dict[int, str] = {}
+
+    def _resolve_name(self, user_id: int) -> str:
+        if user_id in self._name_cache:
+            return self._name_cache[user_id]
+
+        member = (
+            next((m for m in self.vc.channel.members if m.id == user_id), None)
+            or self.vc.guild.get_member(user_id)
+        )
+        name = member.display_name if member else str(user_id)
+        self._name_cache[user_id] = name
+        return name
 
     def write(self, data, user):
         # Convert Discord's 48 kHz stereo PCM → 16 kHz mono
@@ -35,20 +41,11 @@ class StreamingSink(Sink):
             .raw_data
         )
 
-        with self._lock:
-            self._buffers[user] = self._buffers.get(user, b"") + converted
-            if len(self._buffers[user]) >= _BUFFER_BYTES:
-                if self.signals.stt_ready:
-                    self.stt.feed_audio(self._buffers[user])
-                self._buffers[user] = b""
+        display_name = self._resolve_name(user)
+        self.discord_stt.feed_audio(converted, user, display_name)
 
     def cleanup(self):
-        # Flush any remaining buffered audio when recording stops
-        with self._lock:
-            for user, buf in self._buffers.items():
-                if buf and self.signals.stt_ready:
-                    self.stt.feed_audio(buf)
-            self._buffers.clear()
+        self.discord_stt.cleanup()
 
     def format_audio(self, audio):
         return

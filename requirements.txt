@@ -1,11 +1,13 @@
 # Direct dependencies
 realtimestt==0.3.7
+faster-whisper>=1.0.0
 f5-tts-mlx>=0.2.6
 python-socketio>=5.11.2
 sseclient-py>=1.8.0
 twitchAPI>=4.2.0
 pyvts>=0.3.2
 mss>=9.0.1
+kokoro-onnx>=0.5.0
 chromadb>=0.5.0
 transformers>=4.41.0
 
@@ -15,6 +17,7 @@ py-cord[voice]>=2.6.0
 # Fixes for dependency problems
 opentelemetry-proto~=1.24.0
 numba~=0.59.1
+numpy~=1.26.4
 
 # Attempt to speed up dependency resolution. Remove if causing problems for you
 contourpy==1.2.1
