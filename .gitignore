@@ -27,6 +27,9 @@ voices/*.ogg
 # Memory database
 memories/chroma.db
 
+# Debug curl dumps
+tmp/
+
 # Logs
 *.log
 
