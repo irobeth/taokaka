@@ -1,165 +1,159 @@
 import logging
 import threading
-import queue
-import numpy as np
-import torch
+
+from RealtimeSTT import AudioToTextRecorder
 
 log = logging.getLogger(__name__)
 
-_SAMPLE_RATE = 16000
-# Silero VAD operates on fixed-size chunks; 512 samples @ 16kHz = 32ms
-_VAD_CHUNK_SAMPLES = 512
-_VAD_CHUNK_BYTES = _VAD_CHUNK_SAMPLES * 2  # 16-bit PCM
 
-# Speech detection thresholds
-_SPEECH_THRESHOLD = 0.5
-_SILENCE_DURATION_S = 0.6   # seconds of silence before end-of-speech
-_MIN_SPEECH_DURATION_S = 0.3  # ignore utterances shorter than this
+class UserRecorder:
+    """Per-user RealtimeSTT recorder running in a dedicated background thread."""
 
-_SILENCE_CHUNKS = int(_SILENCE_DURATION_S * _SAMPLE_RATE / _VAD_CHUNK_SAMPLES)
-_MIN_SPEECH_CHUNKS = int(_MIN_SPEECH_DURATION_S * _SAMPLE_RATE / _VAD_CHUNK_SAMPLES)
+    def __init__(self, user_id, display_name, process_text_fn, signals, interface):
+        self.user_id = user_id
+        self.display_name = display_name
+        self.process_text_fn = process_text_fn
+        self.signals = signals
+        self.interface = interface
 
+        self._buffer = bytearray()
+        self._buffer_lock = threading.Lock()
+        self._ready = False
+        self._stop_event = threading.Event()
 
-class UserVoicePipeline:
-    """Per-user VAD state: Silero model instance, audio buffer, speech tracking."""
-
-    def __init__(self):
-        self.vad_model, _ = torch.hub.load(
-            repo_or_dir='snakers4/silero-vad',
-            model='silero_vad',
-            onnx=True,
-            trust_repo=True,
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name=f"discord-stt-{display_name}",
         )
-        self.audio_buffer = b""      # raw PCM waiting for VAD chunk alignment
-        self.speech_audio = b""      # accumulated speech audio for transcription
-        self.is_speaking = False
-        self.silence_chunks = 0      # consecutive silent chunks since last speech
-        self.speech_chunks = 0       # total speech chunks in current utterance
+        self._thread.start()
 
-    def reset_vad_state(self):
-        self.vad_model.reset_states()
-        self.speech_audio = b""
-        self.is_speaking = False
-        self.silence_chunks = 0
-        self.speech_chunks = 0
+    def feed(self, data: bytes):
+        """Buffer audio until recorder is ready, then feed directly."""
+        if self._stop_event.is_set():
+            return
+        if self._ready:
+            self._recorder.feed_audio(data)
+        else:
+            with self._buffer_lock:
+                self._buffer.extend(data)
+
+    def _update_status(self, status: str):
+        workers = self.signals.stt_workers
+        for entry in workers:
+            if entry["name"] == self.display_name:
+                entry["status"] = status
+                return
+
+    def _on_recording_start(self):
+        self._update_status("speaking")
+
+    def _on_recording_stop(self):
+        self._update_status("transcribing")
+
+    def _on_text(self, text: str):
+        text = text.strip()
+        self._update_status("idle")
+        if text:
+            self.process_text_fn(text, speaker=self.display_name)
+
+    def _run(self):
+        self.interface.log(f"Recorder starting for {self.display_name}", source="DiscordSTT")
+        try:
+            self._recorder = AudioToTextRecorder(
+                use_microphone=False,
+                spinner=False,
+                model='distil-large-v3',
+                language='en',
+                silero_sensitivity=0.6,
+                silero_use_onnx=True,
+                post_speech_silence_duration=0.4,
+                min_length_of_recording=0,
+                min_gap_between_recordings=0.2,
+                enable_realtime_transcription=False,
+                compute_type='auto',
+                on_recording_start=self._on_recording_start,
+                on_recording_stop=self._on_recording_stop,
+                level=logging.ERROR,
+            )
+        except Exception:
+            log.exception("Failed to create recorder for %s", self.display_name)
+            return
+
+        # Flush buffered audio
+        with self._buffer_lock:
+            if self._buffer:
+                self._recorder.feed_audio(bytes(self._buffer))
+                self._buffer.clear()
+            self._ready = True
+
+        self.interface.log(f"Recorder ready for {self.display_name}", source="DiscordSTT")
+
+        # Block on text() until stop() interrupts
+        while not self._stop_event.is_set():
+            try:
+                self._recorder.text(self._on_text)
+            except Exception:
+                if self._stop_event.is_set():
+                    break
+                log.exception("Recorder error for %s", self.display_name)
+
+    def stop(self):
+        self._stop_event.set()
+        if self._ready:
+            try:
+                self._recorder.stop()
+                self._recorder.interrupt_stop_event.set()
+            except Exception:
+                pass
 
 
 class DiscordSTT:
-    """Manages per-user voice pipelines with a shared Whisper model for transcription."""
+    """Manages per-user RealtimeSTT recorders for Discord voice."""
 
     def __init__(self, signals, interface, process_text_fn):
         self.signals = signals
         self.interface = interface
         self.process_text_fn = process_text_fn
 
-        self._pipelines: dict[int, UserVoicePipeline] = {}
-        self._pipeline_lock = threading.Lock()
-
-        self._whisper_model = None
-        self._whisper_lock = threading.Lock()
-
-        self._queue: queue.Queue = queue.Queue()
-        self._worker_thread: threading.Thread | None = None
-        self._shutdown_event = threading.Event()
+        self._recorders: dict[int, UserRecorder] = {}
+        self._lock = threading.Lock()
+        self._ready = False
 
     def init_model(self):
-        """Load the shared Whisper model and start the transcription worker."""
-        if self._whisper_model is not None:
+        """Mark as ready. No model pre-loading -- recorders load on demand."""
+        if self._ready:
             return
-
-        from faster_whisper import WhisperModel
-
-        self.interface.log("Loading Whisper model for Discord STT…", source="DiscordSTT")
-        self._whisper_model = WhisperModel(
-            "distil-large-v3",
-            device="auto",
-            compute_type="auto",
-        )
-        self.interface.log("Whisper model ready.", source="DiscordSTT")
-
-        self._shutdown_event.clear()
-        self._worker_thread = threading.Thread(
-            target=self._transcription_worker,
-            daemon=True,
-            name="discord-stt-worker",
-        )
-        self._worker_thread.start()
+        self._ready = True
+        self.signals.stt_workers = []
+        self.interface.log("Discord STT ready.", source="DiscordSTT")
 
     def feed_audio(self, data: bytes, user_id: int, display_name: str):
-        """Feed 16kHz mono PCM audio for a specific user. Runs VAD inline."""
-        pipeline = self._get_pipeline(user_id)
+        """Forward 16 kHz mono PCM to the user's recorder, creating it if needed."""
+        if not self._ready:
+            return
 
-        pipeline.audio_buffer += data
-
-        # Process all complete VAD chunks
-        while len(pipeline.audio_buffer) >= _VAD_CHUNK_BYTES:
-            chunk = pipeline.audio_buffer[:_VAD_CHUNK_BYTES]
-            pipeline.audio_buffer = pipeline.audio_buffer[_VAD_CHUNK_BYTES:]
-
-            # Run Silero VAD on chunk
-            audio_float = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-            audio_tensor = torch.from_numpy(audio_float)
-            speech_prob = pipeline.vad_model(audio_tensor, _SAMPLE_RATE).item()
-
-            if speech_prob >= _SPEECH_THRESHOLD:
-                if not pipeline.is_speaking:
-                    pipeline.is_speaking = True
-                    pipeline.speech_chunks = 0
-                pipeline.silence_chunks = 0
-                pipeline.speech_chunks += 1
-                pipeline.speech_audio += chunk
-            elif pipeline.is_speaking:
-                pipeline.silence_chunks += 1
-                pipeline.speech_audio += chunk  # include trailing silence for context
-
-                if pipeline.silence_chunks >= _SILENCE_CHUNKS:
-                    # End of speech detected
-                    if pipeline.speech_chunks >= _MIN_SPEECH_CHUNKS:
-                        self._queue.put((display_name, pipeline.speech_audio))
-                    pipeline.reset_vad_state()
-
-    def _get_pipeline(self, user_id: int) -> UserVoicePipeline:
-        with self._pipeline_lock:
-            if user_id not in self._pipelines:
-                self._pipelines[user_id] = UserVoicePipeline()
-            return self._pipelines[user_id]
-
-    def _transcription_worker(self):
-        """Dequeue completed utterances, transcribe with Whisper, forward text."""
-        while not self._shutdown_event.is_set():
-            try:
-                display_name, audio_bytes = self._queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
-
-            audio_float = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-
-            with self._whisper_lock:
-                segments, _ = self._whisper_model.transcribe(
-                    audio_float,
-                    language="en",
-                    beam_size=5,
-                    vad_filter=False,  # we already did VAD
+        with self._lock:
+            recorder = self._recorders.get(user_id)
+            if recorder is None:
+                recorder = UserRecorder(
+                    user_id, display_name,
+                    self.process_text_fn, self.signals, self.interface,
                 )
-                text = " ".join(seg.text.strip() for seg in segments).strip()
+                self._recorders[user_id] = recorder
+                self.signals.stt_workers.append({"name": display_name, "status": "idle"})
 
-            if text:
-                self.process_text_fn(text, speaker=display_name)
+        recorder.feed(data)
 
     def cleanup(self):
-        """Reset per-user pipelines (e.g. on /stop). Keeps model loaded."""
-        with self._pipeline_lock:
-            self._pipelines.clear()
-        # Drain any pending transcription items
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-            except queue.Empty:
-                break
+        """Stop all recorders (e.g. on /stop)."""
+        with self._lock:
+            for recorder in self._recorders.values():
+                recorder.stop()
+            self._recorders.clear()
+        self.signals.stt_workers = []
 
     def shutdown(self):
-        """Full shutdown — stop worker thread."""
-        self._shutdown_event.set()
-        if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=5)
+        """Full teardown."""
         self.cleanup()
+        self._ready = False

@@ -1,6 +1,5 @@
 # Direct dependencies
 realtimestt==0.3.7
-faster-whisper>=1.0.0
 f5-tts-mlx>=0.2.6
 python-socketio>=5.11.2
 sseclient-py>=1.8.0
