@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 from dotenv import load_dotenv
 import discord
 from constants import DISCORD_MAX_MESSAGE_LENGTH
@@ -26,7 +27,7 @@ class DiscordClient(Module):
         if len(self.signals.recentDiscordMessages) > 0:
             output = "\nThese are recent Discord messages:\n"
             for message in self.signals.recentDiscordMessages:
-                output += message + "\n"
+                output += message["text"] + "\n"
             output += "Pick the highest quality message with the most potential for an interesting answer and respond to them.\n"
             self.prompt_injection.text = output
         else:
@@ -79,7 +80,7 @@ class DiscordClient(Module):
             msgs = self.signals.recentDiscordMessages
             if len(msgs) >= 10:
                 msgs.pop(0)
-            msgs.append(f"{message.author.display_name}: {message.content}")
+            msgs.append({"text": f"{message.author.display_name}: {message.content}", "timestamp": time.time()})
             # Trigger the setter so the sio_queue gets notified
             self.signals.recentDiscordMessages = msgs
 

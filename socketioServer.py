@@ -1,9 +1,7 @@
+import asyncio
 import time
 from aiohttp import web
 import socketio
-from aiohttp.web_runner import GracefulExit
-
-from constants import PATIENCE
 
 
 class SocketIOServer:
@@ -115,12 +113,12 @@ class SocketIOServer:
 
         @sio.event
         async def fun_fact(sid):
-            self.signals.history.append({"role": "user", "content": "Let's move on. Can we get a fun fact?"})
+            self.signals.history.append({"role": "user", "content": "Let's move on. Can we get a fun fact?", "timestamp": time.time()})
             self.signals.new_message = True
 
         @sio.event
         async def new_topic(sid, message):
-            self.signals.history.append({"role": "user", "content": message})
+            self.signals.history.append({"role": "user", "content": message, "timestamp": time.time()})
             self.signals.new_message = True
 
         @sio.event
@@ -194,7 +192,7 @@ class SocketIOServer:
             self.signals.AI_speaking = self.signals.AI_speaking
             self.signals.human_speaking = self.signals.human_speaking
             self.signals.recentTwitchMessages = self.signals.recentTwitchMessages
-            await sio.emit("patience_update", {"crr_time": time.time() - self.signals.last_message_time, "total_time": PATIENCE})
+            await sio.emit("patience_update", {"crr_time": time.time() - self.signals.last_message_time, "total_time": self.signals.patience})
             await sio.emit('get_blacklist', self.llmWrapper.API.get_blacklist())
 
             if "twitch" in self.modules:
@@ -219,18 +217,23 @@ class SocketIOServer:
             print('Client disconnected')
 
         async def send_messages():
-            while True:
-                if self.signals.terminate:
-                    raise GracefulExit
-
+            while not self.signals.terminate:
                 while not self.signals.sio_queue.empty():
                     event, data = self.signals.sio_queue.get()
-                    # print(f"Sending {event} with {data}")
                     await sio.emit(event, data)
                 await sio.sleep(0.1)
 
-        async def init_app():
+        async def run():
             sio.start_background_task(send_messages)
-            return app
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, 'localhost', 8080)
+            await site.start()
+            print("Socket.io server started on port 8080")
+            while not self.signals.terminate:
+                await asyncio.sleep(0.1)
+            await runner.cleanup()
 
-        web.run_app(init_app())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(run())

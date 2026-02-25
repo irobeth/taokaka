@@ -4,6 +4,7 @@ from twitchAPI.type import AuthScope, ChatEvent
 from twitchAPI.chat import Chat, EventData, ChatMessage, ChatSub, ChatCommand
 import os
 import asyncio
+import time
 from dotenv import load_dotenv
 from constants import TWITCH_CHANNEL, TWITCH_MAX_MESSAGE_LENGTH
 from modules.module import Module
@@ -23,7 +24,7 @@ class TwitchClient(Module):
         if len(self.signals.recentTwitchMessages) > 0:
             output = "\nThese are recent twitch messages:\n"
             for message in self.signals.recentTwitchMessages:
-                output += message + "\n"
+                output += message["text"] + "\n"
 
             output += "Pick the highest quality message with the most potential for an interesting answer and respond to them.\n"
             self.prompt_injection.text = output
@@ -61,7 +62,7 @@ class TwitchClient(Module):
             # Store the 10 most recent chat messages
             if len(self.signals.recentTwitchMessages) > 10:
                 self.signals.recentTwitchMessages.pop(0)
-            self.signals.recentTwitchMessages.append(f"{msg.user.name} : {msg.text}")
+            self.signals.recentTwitchMessages.append({"text": f"{msg.user.name} : {msg.text}", "timestamp": time.time()})
 
             # Set recentTwitchMessages to itself to trigger the setter (updates frontend)
             self.signals.recentTwitchMessages = self.signals.recentTwitchMessages

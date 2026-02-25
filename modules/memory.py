@@ -88,17 +88,33 @@ class Memory(Module):
         return document, metadata
 
     def get_prompt_injection(self):
-        # Use recent messages and twitch messages to query the database for related memories
-        query = ""
-
-        for message in self.signals.recentTwitchMessages:
-            query += message + "\n"
+        # Collect timestamped messages from all three chat sources
+        combined = []
 
         for message in self.signals.history[-MEMORY_QUERY_MESSAGE_COUNT:]:
+            ts = message.get("timestamp", 0)
             if message["role"] == "user" and message["content"] != "":
-                query += HOST_NAME + ": " + message["content"] + "\n"
+                combined.append((ts, HOST_NAME + ": " + message["content"]))
             elif message["role"] == "assistant" and message["content"] != "":
-                query += AI_NAME + ": " + message["content"] + "\n"
+                combined.append((ts, AI_NAME + ": " + message["content"]))
+
+        for message in self.signals.recentTwitchMessages:
+            ts = message.get("timestamp", 0) if isinstance(message, dict) else 0
+            text = message["text"] if isinstance(message, dict) else message
+            combined.append((ts, text))
+
+        for message in self.signals.recentDiscordMessages:
+            ts = message.get("timestamp", 0) if isinstance(message, dict) else 0
+            text = message["text"] if isinstance(message, dict) else message
+            combined.append((ts, text))
+
+        # Sort by timestamp
+        combined.sort(key=lambda x: x[0])
+
+        query = "[Conversation]\nHere is a recent excerpt of the conversation:\n"
+        for _, text in combined:
+            query += text + "\n"
+        query += "[/Conversation]\n"
 
         memories = self.collection.query(query_texts=query, n_results=MEMORY_RECALL_COUNT)
 
@@ -118,14 +134,14 @@ class Memory(Module):
         self.signals.last_recalled = recalled
 
         # Generate injection for LLM prompt
-        self.prompt_injection.text = f"[KNOWLEDGE]\n {AI_NAME} knows these things:\n"
+        self.prompt_injection.text = f"[Memories]\n {AI_NAME} knows these things:\n"
         for doc in recalled:
             self.prompt_injection.text += doc + "\n"
         if forced_docs:
             self.prompt_injection.text += f"{AI_NAME} is specifically focused on:\n"
             for doc in forced_docs:
                 self.prompt_injection.text += doc + "\n"
-        self.prompt_injection.text += "[/KNOWLEDGE]\n"
+        self.prompt_injection.text += "[/Memories]\n"
 
         return self.prompt_injection
 

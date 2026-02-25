@@ -20,7 +20,7 @@ class STT:
             speaker = self.signals.active_voice_user
         attributed = f"{speaker}: {text}" if speaker else text
         self.interface.log(attributed, source="STT")
-        self.signals.history.append({"role": "user", "content": attributed})
+        self.signals.history.append({"role": "user", "content": attributed, "timestamp": time.time()})
 
         self.signals.last_message_time = time.time()
         if not self.signals.AI_speaking:

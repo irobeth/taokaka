@@ -21,7 +21,7 @@ _WIDTH = 250
 _HEIGHT = 75
 _BODY_H = _HEIGHT - 3  # header takes 3 rows
 
-_PANELS = ["prompt", "conversation", "trace", "online", "zeitgeist", "memory_tree", "memories"]
+_PANELS = ["online", "conversation", "memory_tree", "memories", "trace", "zeitgeist", "prompt"]
 
 # Explicit heights for every panel (including border).
 # Inner content lines = height - 2.
@@ -113,6 +113,10 @@ class Interface:
     def _cycle_panel(self):
         with self._lock:
             self._active_panel_idx = (self._active_panel_idx + 1) % len(_PANELS)
+
+    def _cycle_panel_back(self):
+        with self._lock:
+            self._active_panel_idx = (self._active_panel_idx - 1) % len(_PANELS)
 
     def _page_back(self):
         """Left arrow — go one page toward older content."""
@@ -216,7 +220,9 @@ class Interface:
                 elif ch == b"\x1b":
                     if select.select([sys.__stdin__], [], [], 0.05)[0]:
                         seq = os.read(fd, 2)
-                        if seq == b"[D":      # left arrow
+                        if seq == b"[Z":      # shift+tab
+                            self._cycle_panel_back()
+                        elif seq == b"[D":      # left arrow
                             self._page_back()
                         elif seq == b"[C":    # right arrow
                             self._page_forward()
@@ -235,7 +241,7 @@ class Interface:
     # ── Pagination helpers ────────────────────────────────────────────────
 
     def _border(self, name: str) -> str:
-        return "cyan" if _PANELS[self._active_panel_idx] == name else ""
+        return "cyan" if _PANELS[self._active_panel_idx] == name else "#BF00FF"
 
     def _paginate(self, items: list, panel: str):
         """Return (visible_items, current_page_1indexed, total_pages)."""

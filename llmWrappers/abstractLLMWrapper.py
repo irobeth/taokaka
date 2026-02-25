@@ -1,5 +1,4 @@
 import copy
-import os
 import requests
 import sseclient
 import json
@@ -7,8 +6,6 @@ import time
 from dotenv import load_dotenv
 from constants import *
 from modules.injection import Injection
-
-_CURL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tmp", "llm_requests")
 
 
 class AbstractLLMWrapper:
@@ -117,30 +114,6 @@ class AbstractLLMWrapper:
                 if not self.interface:
                     print("Prompt too long, removing earliest message")
 
-    def _dump_curl(self, url, headers, data):
-        """Write an equivalent curl command to tmp/llm_requests/ for replay/debugging."""
-        os.makedirs(_CURL_DIR, exist_ok=True)
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        # Write payload to a JSON file so curl can reference it with @
-        json_path = os.path.join(_CURL_DIR, f"{ts}.json")
-        curl_path = os.path.join(_CURL_DIR, f"{ts}.sh")
-
-        with open(json_path, "w") as f:
-            json.dump(data, f, indent=2)
-
-        header_flags = " ".join(f"-H '{k}: {v}'" for k, v in headers.items())
-        curl_cmd = (
-            f"#!/usr/bin/env bash\n"
-            f"curl -k -N -X POST \\\n"
-            f"  {header_flags} \\\n"
-            f"  -d @'{json_path}' \\\n"
-            f"  '{url}'\n"
-        )
-
-        with open(curl_path, "w") as f:
-            f.write(curl_cmd)
-        os.chmod(curl_path, 0o755)
-
     def prepare_payload(self):
         raise NotImplementedError("Must implement prepare_payload in child classes")
 
@@ -161,7 +134,6 @@ class AbstractLLMWrapper:
             level="info",
         )
 
-        self._dump_curl(url, self.headers, data)
         stream_response = requests.post(url, headers=self.headers, json=data,
                                         verify=False, stream=True)
         self._trace(f"← HTTP {stream_response.status_code}  streaming…")
@@ -220,7 +192,7 @@ class AbstractLLMWrapper:
             self.signals.sio_queue.put(("reset_next_message", None))
             self.signals.sio_queue.put(("next_chunk", "Filtered."))
 
-        self.signals.history.append({"role": "assistant", "content": AI_message})
+        self.signals.history.append({"role": "assistant", "content": AI_message, "timestamp": time.time()})
         self.tts.play(AI_message)
 
     class API:
