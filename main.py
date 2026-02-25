@@ -1,4 +1,6 @@
 # Python Module Imports
+import warnings
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
 import signal
 import sys
 import time
@@ -7,6 +9,7 @@ import asyncio
 
 # Class Imports
 from signals import Signals
+from interface import Interface
 from prompter import Prompter
 from llmWrappers.llmState import LLMState
 from llmWrappers.textLLMWrapper import TextLLMWrapper
@@ -20,25 +23,29 @@ from modules.vtubeStudio import VtubeStudio
 from modules.multimodal import MultiModal
 from modules.customPrompt import CustomPrompt
 from modules.memory import Memory
+from modules.zeitgeist import Zeitgeist
 from socketioServer import SocketIOServer
 
 
 async def main():
-    print("Starting Project...")
+    # CORE FILES
+    signals = Signals()
+    interface = Interface(signals)
+    interface.start()
+
+    interface.log("Starting Project...", source="Main")
 
     # Register signal handler so that all threads can be exited.
     def signal_handler(sig, frame):
-        print('Received CTRL + C, attempting to gracefully exit. Close all dashboard windows to speed up shutdown.')
+        interface.log("Received CTRL+C — shutting down.", source="Main")
         signals.terminate = True
         stt.API.shutdown()
+        # Restore default handlers so a second Ctrl+C force-exits
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-
-    # CORE FILES
-
-    # Singleton object that every module will be able to read/write to
-    signals = Signals()
 
     # MODULES
     # Modules that start disabled CANNOT be enabled while the program is running.
@@ -46,32 +53,35 @@ async def main():
     module_threads = {}
 
     # Create STT
-    stt = STT(signals)
+    stt = STT(signals, interface)
     # Create TTS
-    tts = TTS(signals)
+    tts = TTS(signals, interface)
     # Create LLMWrappers
     llmState = LLMState()
     llms = {
-        "text": TextLLMWrapper(signals, tts, llmState, modules),
-        "image": ImageLLMWrapper(signals, tts, llmState, modules)
+        "text": TextLLMWrapper(signals, tts, llmState, modules, interface),
+        "image": ImageLLMWrapper(signals, tts, llmState, modules, interface)
     }
     # Create Prompter
-    prompter = Prompter(signals, llms, modules)
+    prompter = Prompter(signals, llms, modules, interface)
 
     # Create Discord bot
-    modules['discord'] = DiscordClient(signals, stt, enabled=True)
+    modules['discord'] = DiscordClient(signals, stt, tts, interface, enabled=True)
     # Create Twitch bot
     modules['twitch'] = TwitchClient(signals, enabled=False)
     # Create audio player
     modules['audio_player'] = AudioPlayer(signals, enabled=True)
     # Create Vtube Studio plugin
-    modules['vtube_studio'] = VtubeStudio(signals, enabled=True)
+    #modules['vtube_studio'] = VtubeStudio(signals, enabled=True)
     # Create Multimodal module
     modules['multimodal'] = MultiModal(signals, enabled=False)
     # Create Custom Prompt module
     modules['custom_prompt'] = CustomPrompt(signals, enabled=True)
     # Create Memory module
     modules['memory'] = Memory(signals, enabled=True)
+    interface._delete_memory_fn = modules['memory'].API.delete_memory
+    # Create Zeitgeist module
+    modules['zeitgeist'] = Zeitgeist(signals, enabled=True)
 
     # Create Socket.io server
     # The specific llmWrapper it gets doesn't matter since state is shared between all llmWrappers
@@ -94,7 +104,7 @@ async def main():
 
     while not signals.terminate:
         time.sleep(0.1)
-    print("TERMINATING ======================")
+    interface.log("TERMINATING", source="Main")
 
     # Wait for child threads to exit before exiting main thread
 
@@ -103,12 +113,8 @@ async def main():
         module_thread.join()
 
     sio_thread.join()
-    print("SIO EXITED ======================")
     prompter_thread.join()
-    print("PROMPTER EXITED ======================")
-    # stt_thread.join()
-    # print("STT EXITED ======================")
-
+    interface.stop()
     print("All threads exited, shutdown complete")
     sys.exit(0)
 

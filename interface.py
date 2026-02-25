@@ -21,17 +21,19 @@ _WIDTH = 250
 _HEIGHT = 75
 _BODY_H = _HEIGHT - 3  # header takes 3 rows
 
-_PANELS = ["prompt", "conversation", "trace", "online", "zeitgeist", "memories"]
+_PANELS = ["prompt", "conversation", "trace", "online", "zeitgeist", "memory_tree", "memories"]
 
 # Explicit heights for every panel (including border).
 # Inner content lines = height - 2.
 _PANEL_H = {
-    "conversation": 18,
-    "prompt":       _BODY_H - 18 - 14,          # 40
+    "conversation": 16,
+    "memories":     _BODY_H - 16 - 14,          # 40
+    "memory_tree":  _BODY_H - 16 - 14,          # 40 (same height as memories)
     "trace":        14,
-    "online":       16,
+    "status":       16,
+    "online":       _BODY_H - 16,               # remaining space in left column
+    "prompt":       _BODY_H - 10,               # 62
     "zeitgeist":    10,
-    "memories":     _BODY_H - 16 - 10,          # 46
 }
 _INNER = {k: v - 2 for k, v in _PANEL_H.items()}
 
@@ -65,8 +67,15 @@ class Interface:
         self._console = Console(width=_WIDTH, highlight=False, file=sys.__stdout__)
 
         self._active_panel_idx = 0
+        self._include_raw = False
         # pages_back: 0 = last page (tail / most recent), higher = further back
         self._pages = {p: 0 for p in _PANELS}
+
+        self._tree_cursor = 0           # index into self._tree_selectable
+        self._tree_selectable = []      # list of (all_lines_index, memory_id) built during render
+        self._tree_total_lines = 0      # total line count, set during render
+        self._delete_confirm_id = None  # memory ID pending delete confirmation
+        self._delete_memory_fn = None   # callback wired from main.py
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -117,6 +126,68 @@ class Interface:
         with self._lock:
             self._pages[panel] = max(0, self._pages[panel] - 1)
 
+    def _cursor_up(self):
+        if _PANELS[self._active_panel_idx] != "memory_tree":
+            return
+        with self._lock:
+            if self._tree_selectable and self._tree_cursor > 0:
+                self._tree_cursor -= 1
+                self._auto_scroll_to_cursor()
+
+    def _cursor_down(self):
+        if _PANELS[self._active_panel_idx] != "memory_tree":
+            return
+        with self._lock:
+            if self._tree_selectable and self._tree_cursor < len(self._tree_selectable) - 1:
+                self._tree_cursor += 1
+                self._auto_scroll_to_cursor()
+
+    def _auto_scroll_to_cursor(self):
+        """Adjust pagination so cursor row is visible. Called under self._lock."""
+        if not self._tree_selectable:
+            return
+        cursor_line_idx = self._tree_selectable[self._tree_cursor][0]
+        page_size = _INNER["memory_tree"]
+        total_pages = max(1, math.ceil(self._tree_total_lines / page_size))
+        cursor_page = (cursor_line_idx // page_size) + 1
+        self._pages["memory_tree"] = total_pages - cursor_page
+
+    def _request_delete(self):
+        if _PANELS[self._active_panel_idx] != "memory_tree":
+            return
+        with self._lock:
+            if not self._tree_selectable:
+                return
+            _, mem_id = self._tree_selectable[self._tree_cursor]
+            self._delete_confirm_id = mem_id
+
+    def _do_delete_confirmed(self):
+        """Actually delete. Called under self._lock."""
+        mem_id = self._delete_confirm_id
+        if not mem_id:
+            return
+        self.signals.forced_memory_ids.discard(mem_id)
+        if self._delete_memory_fn:
+            try:
+                self._delete_memory_fn(mem_id)
+            except Exception:
+                pass
+        # Clamp cursor after deletion
+        if self._tree_cursor >= len(self._tree_selectable) - 1:
+            self._tree_cursor = max(0, self._tree_cursor - 1)
+
+    def _toggle_forced(self):
+        if _PANELS[self._active_panel_idx] != "memory_tree":
+            return
+        with self._lock:
+            if not self._tree_selectable:
+                return
+            _, mem_id = self._tree_selectable[self._tree_cursor]
+            if mem_id in self.signals.forced_memory_ids:
+                self.signals.forced_memory_ids.discard(mem_id)
+            else:
+                self.signals.forced_memory_ids.add(mem_id)
+
     def _read_input(self):
         fd = sys.__stdin__.fileno()
         old = termios.tcgetattr(fd)
@@ -126,15 +197,38 @@ class Interface:
                 if not select.select([sys.__stdin__], [], [], 0.05)[0]:
                     continue
                 ch = os.read(fd, 1)
+
+                # Delete confirmation intercept: next key is Y/N answer
+                if self._delete_confirm_id is not None:
+                    with self._lock:
+                        if ch in (b"y", b"Y"):
+                            self._do_delete_confirmed()
+                        self._delete_confirm_id = None
+                    continue
+
                 if ch == b"\t":
                     self._cycle_panel()
+                elif ch == b"r":
+                    with self._lock:
+                        self._include_raw = not self._include_raw
+                elif ch in (b"\r", b"\n"):
+                    self._toggle_forced()
                 elif ch == b"\x1b":
                     if select.select([sys.__stdin__], [], [], 0.05)[0]:
                         seq = os.read(fd, 2)
-                        if seq == b"[D":      # left arrow → page back
+                        if seq == b"[D":      # left arrow
                             self._page_back()
-                        elif seq == b"[C":    # right arrow → page forward
+                        elif seq == b"[C":    # right arrow
                             self._page_forward()
+                        elif seq == b"[A":    # up arrow
+                            self._cursor_up()
+                        elif seq == b"[B":    # down arrow
+                            self._cursor_down()
+                        elif seq == b"[3":    # Delete key (\x1b[3~)
+                            if select.select([sys.__stdin__], [], [], 0.05)[0]:
+                                tail = os.read(fd, 1)
+                                if tail == b"~":
+                                    self._request_delete()
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
@@ -175,8 +269,13 @@ class Interface:
             else "[bold yellow]STARTING…[/bold yellow]"
         )
         active_name = _PANELS[self._active_panel_idx]
+        raw_label = (
+            "[bold green]Include Raw: ON[/bold green]"
+            if self._include_raw
+            else "[dim]Include Raw: OFF[/dim]"
+        )
 
-        text = Text.from_markup(
+        left = Text.from_markup(
             f" {dot(s.stt_ready)} STT  "
             f"{dot(s.tts_ready)} TTS  "
             f"{dot(disc_up)} Discord  "
@@ -185,6 +284,15 @@ class Interface:
             f"[dim]│[/dim]  {system_label}"
             f"  [dim]│[/dim]  [cyan]{active_name}[/cyan]"
         )
+        right = Text.from_markup(raw_label)
+
+        # Pad between left and right so the raw toggle is right-aligned
+        gap = max(1, _WIDTH - 4 - left.cell_len - right.cell_len)  # -4 for panel border/padding
+        text = Text()
+        text.append_text(left)
+        text.append(" " * gap)
+        text.append_text(right)
+
         return Panel(
             text,
             title="[bold white]✦ TAOKAKA ✦[/bold white]",
@@ -241,6 +349,12 @@ class Interface:
 
     def _render_prompt(self):
         prompt = self.signals.last_full_prompt
+        if prompt and not self._include_raw:
+            # Strip the raw response section appended by the LLM wrapper
+            marker = "\n\n═══ RAW RESPONSE ═══\n"
+            idx = prompt.find(marker)
+            if idx != -1:
+                prompt = prompt[:idx]
         text = Text(overflow="fold")
         if prompt:
             lines = prompt.splitlines()
@@ -377,6 +491,125 @@ class Interface:
             border_style=self._border("zeitgeist"),
         )
 
+    def _render_memory_tree(self):
+        all_mems = self.signals.all_memories
+        forced_ids = self.signals.forced_memory_ids
+
+        # Group memories by type
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for mem in all_mems:
+            meta = mem.get("metadata", {})
+            mem_type = meta.get("type", "unknown")
+            grouped[mem_type].append(mem)
+
+        # Build lines for pagination: we flatten the tree into styled text lines
+        # because Rich Tree cannot be sliced for pagination directly.
+        # Each line is (content, style, mem_id_or_None)
+        all_lines = []
+        selectable = []  # list of (line_index, memory_id)
+        all_lines.append((f"Memories ({len(all_mems)} total)", "bold", None))
+
+        # Display types in a fixed order, skip empty ones
+        type_order = ["core", "personal", "about_user", "opinion", "long_term",
+                      "short_term", "long-term", "short-term", "unknown"]
+        for mem_type in type_order:
+            entries = grouped.get(mem_type, [])
+            if not entries:
+                continue
+            all_lines.append((f"  {mem_type} ({len(entries)})", "bold yellow", None))
+            for entry in entries:
+                meta = entry.get("metadata", {})
+                title = meta.get("title", "")
+                doc = entry.get("document", "")
+                mem_id = entry.get("id", "")
+                # Truncate long documents
+                display = doc[:55] + "..." if len(doc) > 55 else doc
+                # Show related_user if present
+                user = meta.get("related_user", "")
+                if user and user != "personal":
+                    display = f"[{user}] {display}"
+                line_idx = len(all_lines)
+                selectable.append((line_idx, mem_id))
+                if title:
+                    all_lines.append(("title_line", ("    ", title, display), mem_id))
+                else:
+                    all_lines.append((f"    {display}", "dim", mem_id))
+
+        if len(all_mems) == 0:
+            all_lines.append(("  No memories stored", "dim", None))
+
+        # Store selectable list and total lines for cursor navigation
+        with self._lock:
+            self._tree_selectable = selectable
+            self._tree_total_lines = len(all_lines)
+            # Clamp cursor
+            if selectable:
+                self._tree_cursor = min(self._tree_cursor, len(selectable) - 1)
+            else:
+                self._tree_cursor = 0
+            current_cursor = self._tree_cursor
+            confirm_id = self._delete_confirm_id
+
+        visible, pg, total = self._paginate(all_lines, "memory_tree")
+
+        # Determine the absolute start index of visible lines
+        page_size = _INNER["memory_tree"]
+        total_pages = max(1, math.ceil(len(all_lines) / page_size))
+        pages_back = self._pages.get("memory_tree", 0)
+        current_page = total_pages - pages_back
+        abs_start = (current_page - 1) * page_size
+
+        # Build the cursor line index (absolute) from selectable
+        cursor_abs_idx = None
+        cursor_mem_id = None
+        if selectable and current_cursor < len(selectable):
+            cursor_abs_idx = selectable[current_cursor][0]
+            cursor_mem_id = selectable[current_cursor][1]
+
+        text = Text(overflow="fold")
+        for i, (content, style, mem_id) in enumerate(visible):
+            abs_idx = abs_start + i
+            is_cursor = (abs_idx == cursor_abs_idx)
+
+            # Delete confirmation overlay
+            if is_cursor and confirm_id is not None and confirm_id == mem_id:
+                text.append(">> Delete? [Y/N] <<\n", style="bold red")
+                continue
+
+            # Forced prefix
+            forced_prefix = "[F] " if mem_id and mem_id in forced_ids else ""
+
+            if is_cursor:
+                # Cursor row: bold cyan with >> prefix
+                if content == "title_line":
+                    indent, title, doc = style
+                    text.append(f">> {forced_prefix}", style="bold cyan")
+                    text.append(title, style="bold cyan")
+                    text.append(f" {doc}\n", style="bold cyan")
+                else:
+                    text.append(f">> {forced_prefix}{content}\n", style="bold cyan")
+            elif content == "title_line":
+                indent, title, doc = style
+                text.append(f"{indent}{forced_prefix}")
+                text.append(title, style="bold bright_white")
+                text.append(f" {doc}\n", style="dim")
+            else:
+                if forced_prefix and mem_id:
+                    text.append(f"    {forced_prefix}{content.lstrip()}\n", style=style)
+                else:
+                    text.append(f"{content}\n", style=style)
+
+        return Panel(
+            text,
+            title="[bold]Memory Browser[/bold]",
+            subtitle=self._subtitle(pg, total),
+            subtitle_align="right",
+            box=box.ROUNDED,
+            padding=(0, 1),
+            border_style=self._border("memory_tree"),
+        )
+
     def _render_memories(self):
         # Build all lines as (text, style) pairs, then paginate
         all_lines = []
@@ -387,6 +620,18 @@ class Interface:
                 all_lines.append((f"  · {doc}", "dim"))
         else:
             all_lines.append(("  none yet", "dim"))
+        # Forced section
+        forced_ids = self.signals.forced_memory_ids
+        all_lines.append(("", ""))
+        all_lines.append(("Forced", "bold dim"))
+        if forced_ids:
+            id_to_doc = {m["id"]: m["document"] for m in self.signals.all_memories}
+            for fid in forced_ids:
+                doc = id_to_doc.get(fid, "(deleted)")
+                all_lines.append((f"  * {doc}", "dim magenta"))
+        else:
+            all_lines.append(("  none", "dim"))
+
         all_lines.append(("", ""))
         recent = self.signals.recent_memories
         all_lines.append(("Generated", "bold dim"))
@@ -418,19 +663,26 @@ class Interface:
             Layout(name="body"),
         )
         layout["body"].split_row(
-            Layout(name="status", ratio=2),
+            Layout(name="left", ratio=2),
             Layout(name="center", ratio=7),
             Layout(name="right", ratio=3),
         )
+        layout["left"].split_column(
+            Layout(name="status", size=_PANEL_H["status"]),
+            Layout(name="online"),
+        )
         layout["center"].split_column(
             Layout(name="conversation", size=_PANEL_H["conversation"]),
-            Layout(name="prompt", size=_PANEL_H["prompt"]),
+            Layout(name="memory_row", size=_PANEL_H["memories"]),
             Layout(name="trace", size=_PANEL_H["trace"]),
         )
+        layout["memory_row"].split_row(
+            Layout(name="memory_tree", ratio=1),
+            Layout(name="memories", ratio=1),
+        )
         layout["right"].split_column(
-            Layout(name="online", size=_PANEL_H["online"]),
             Layout(name="zeitgeist", size=_PANEL_H["zeitgeist"]),
-            Layout(name="memories", size=_PANEL_H["memories"]),
+            Layout(name="prompt", size=_PANEL_H["prompt"]),
         )
 
         with Live(layout, console=self._console, refresh_per_second=4, screen=True):
@@ -443,6 +695,7 @@ class Interface:
                     layout["trace"].update(self._render_log())
                     layout["online"].update(self._render_online())
                     layout["zeitgeist"].update(self._render_zeitgeist())
+                    layout["memory_tree"].update(self._render_memory_tree())
                     layout["memories"].update(self._render_memories())
                 except Exception as e:
                     self.log(f"Dashboard render error: {e}", source="Interface")
