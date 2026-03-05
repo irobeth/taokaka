@@ -1,4 +1,3 @@
-import copy
 import requests
 import sseclient
 import json
@@ -6,6 +5,7 @@ import time
 from dotenv import load_dotenv
 from constants import *
 from modules.injection import Injection
+from comprehensions.tts_response_extractor import TTSResponseExtractor
 
 
 class AbstractLLMWrapper:
@@ -22,6 +22,7 @@ class AbstractLLMWrapper:
             self.modules = modules
 
         self.headers = {"Content-Type": "application/json"}
+        self.comprehensions = [TTSResponseExtractor()]
 
         load_dotenv()
 
@@ -67,52 +68,6 @@ class AbstractLLMWrapper:
     def _trace(self, msg, level="debug"):
         if self.interface:
             self.interface.trace(msg, source="LLM", level=level)
-
-    def generate_prompt(self):
-        messages = copy.deepcopy(self.signals.history)
-
-        # For every message prefix with speaker name unless it is blank
-        for message in messages:
-            if message["role"] == "user" and message["content"] != "":
-                message["content"] = HOST_NAME + ": " + message["content"] + "\n"
-            elif message["role"] == "assistant" and message["content"] != "":
-                message["content"] = AI_NAME + ": " + message["content"] + "\n"
-
-        while True:
-            chat_section = ""
-            for message in messages:
-                chat_section += message["content"]
-
-            generation_prompt = AI_NAME + ": "
-
-            base_injections = [Injection(self.SYSTEM_PROMPT, 10), Injection(chat_section, 100)]
-            full_prompt = self.assemble_injections(base_injections) + generation_prompt
-            wrapper = [{"role": "user", "content": full_prompt}]
-
-            # Find out roughly how many tokens the prompt is
-            # Not 100% accurate, but it should be a good enough estimate
-            prompt_tokens = len(self.tokenizer.apply_chat_template(wrapper, tokenize=True, return_tensors="pt")[0])
-
-            # Maximum 90% context size usage before prompting LLM
-            if prompt_tokens < 0.9 * self.CONTEXT_SIZE:
-                self._trace(
-                    f"prompt ready: {prompt_tokens} tok / {self.CONTEXT_SIZE} ctx  "
-                    f"({len(messages)} msgs, {len(full_prompt)} chars)",
-                    level="info",
-                )
-                self.signals.sio_queue.put(("full_prompt", full_prompt))
-                self.signals.last_full_prompt = full_prompt
-                return full_prompt
-            else:
-                # If the prompt is too long even with no messages, there's nothing we can do, crash
-                if len(messages) < 1:
-                    raise RuntimeError("Prompt too long even with no messages")
-
-                # Remove the oldest message from the prompt and try again
-                messages.pop(0)
-                self._trace(f"prompt too long ({prompt_tokens} tok) — dropping oldest message", level="warn")
-                if not self.interface:
-                    print("Prompt too long, removing earliest message")
 
     def prepare_payload(self):
         raise NotImplementedError("Must implement prepare_payload in child classes")
@@ -193,7 +148,14 @@ class AbstractLLMWrapper:
             self.signals.sio_queue.put(("next_chunk", "Filtered."))
 
         self.signals.history.append({"role": "assistant", "content": AI_message, "timestamp": time.time()})
-        self.tts.play(AI_message)
+
+        tts_message = AI_message
+        for comp in self.comprehensions:
+            tts_message = comp.process(tts_message)
+            if not tts_message:
+                break
+        if tts_message:
+            self.tts.play(tts_message)
 
     class API:
         def __init__(self, outer):

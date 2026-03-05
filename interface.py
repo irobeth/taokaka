@@ -27,13 +27,13 @@ _PANELS = ["online", "conversation", "memory_tree", "memories", "trace", "zeitge
 # Inner content lines = height - 2.
 _PANEL_H = {
     "conversation": 16,
-    "memories":     _BODY_H - 16 - 14,          # 40
-    "memory_tree":  _BODY_H - 16 - 14,          # 40 (same height as memories)
     "trace":        14,
+    "prompt":       _BODY_H - 16 - 14,          # fills center remainder
     "status":       16,
     "online":       _BODY_H - 16,               # remaining space in left column
-    "prompt":       _BODY_H - 10,               # 62
     "zeitgeist":    10,
+    "memory_tree":  (_BODY_H - 10) // 2,        # half of right remainder
+    "memories":     _BODY_H - 10 - (_BODY_H - 10) // 2,  # other half
 }
 _INNER = {k: v - 2 for k, v in _PANEL_H.items()}
 
@@ -58,11 +58,12 @@ class _StdoutCapture(io.TextIOBase):
 
 
 class Interface:
-    def __init__(self, signals):
+    def __init__(self, signals, raw_mode=False):
         self.signals = signals
         self._entries = deque(maxlen=500)  # unified log + trace
         self._lock = threading.Lock()
         self._started = False
+        self._raw_mode = raw_mode
         self._real_stdout = sys.stdout
         self._console = Console(width=_WIDTH, highlight=False, file=sys.__stdout__)
 
@@ -83,7 +84,7 @@ class Interface:
         ts = datetime.now().strftime("%H:%M:%S")
         with self._lock:
             self._entries.append((ts, source, str(message), None))
-        if not self._started:
+        if self._raw_mode or not self._started:
             prefix = f"[{source}] " if source else ""
             self._real_stdout.write(f"{ts} {prefix}{message}\n")
             self._real_stdout.flush()
@@ -92,8 +93,21 @@ class Interface:
         ts = datetime.now().strftime("%H:%M:%S")
         with self._lock:
             self._entries.append((ts, source, str(message), level.lower()))
+        if self._raw_mode:
+            prefix = f"[{source}] " if source else ""
+            lvl = level.upper()
+            self._real_stdout.write(f"{ts} {lvl} {prefix}{message}\n")
+            self._real_stdout.flush()
 
     def start(self):
+        if self._raw_mode:
+            self._real_stdout = sys.stdout
+            sys.stdout = _StdoutCapture(self.log)
+            self._started = True
+            self._real_stdout.write("Raw output mode — dashboard disabled\n")
+            self._real_stdout.flush()
+            return
+
         self._real_stdout.write(f"\033[8;{_HEIGHT};{_WIDTH}t")
         self._real_stdout.flush()
         time.sleep(0.15)
@@ -212,6 +226,9 @@ class Interface:
 
                 if ch == b"\t":
                     self._cycle_panel()
+                elif ch == b"m":
+                    cur = self.signals.audio_mode
+                    self.signals.audio_mode = "discord" if cur == "local" else "local"
                 elif ch == b"r":
                     with self._lock:
                         self._include_raw = not self._include_raw
@@ -281,10 +298,14 @@ class Interface:
             else "[dim]Include Raw: OFF[/dim]"
         )
 
+        mode_color = "green" if s.audio_mode == "local" else "yellow"
+        mode_label = f"[{mode_color}]{s.audio_mode}[/{mode_color}]"
+
         left = Text.from_markup(
             f" {dot(s.stt_ready)} STT  "
             f"{dot(s.tts_ready)} TTS  "
             f"{dot(disc_up)} Discord  "
+            f"[dim]│[/dim]  Mode: {mode_label}  "
             f"[dim]│[/dim]  Engine: [cyan]{s.tts_engine}[/cyan]  "
             f"[dim]│[/dim]  Patience: [cyan]{s.patience}s[/cyan]  "
             f"[dim]│[/dim]  {system_label}"
@@ -679,16 +700,13 @@ class Interface:
         )
         layout["center"].split_column(
             Layout(name="conversation", size=_PANEL_H["conversation"]),
-            Layout(name="memory_row", size=_PANEL_H["memories"]),
+            Layout(name="prompt"),
             Layout(name="trace", size=_PANEL_H["trace"]),
-        )
-        layout["memory_row"].split_row(
-            Layout(name="memory_tree", ratio=1),
-            Layout(name="memories", ratio=1),
         )
         layout["right"].split_column(
             Layout(name="zeitgeist", size=_PANEL_H["zeitgeist"]),
-            Layout(name="prompt", size=_PANEL_H["prompt"]),
+            Layout(name="memory_tree", size=_PANEL_H["memory_tree"]),
+            Layout(name="memories"),
         )
 
         with Live(layout, console=self._console, refresh_per_second=4, screen=True):

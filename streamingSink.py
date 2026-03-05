@@ -1,7 +1,5 @@
+import numpy as np
 from discord.sinks import Sink
-from pydub import AudioSegment
-
-_TARGET_SAMPLE_RATE = 16000
 
 
 class StreamingSink(Sink):
@@ -28,18 +26,11 @@ class StreamingSink(Sink):
         return name
 
     def write(self, data, user):
-        # Convert Discord's 48 kHz stereo PCM → 16 kHz mono
-        converted = (
-            AudioSegment(
-                data=data,
-                sample_width=2,   # 16-bit
-                frame_rate=48000,
-                channels=2,
-            )
-            .set_channels(1)
-            .set_frame_rate(_TARGET_SAMPLE_RATE)
-            .raw_data
-        )
+        # 48 kHz stereo 16-bit PCM → numpy (N, 2) int16 array
+        samples = np.frombuffer(data, dtype=np.int16).reshape(-1, 2)
+        # Stereo → mono (average channels), then downsample 3:1
+        mono = samples.mean(axis=1).astype(np.int16)
+        converted = mono[::3].tobytes()
 
         display_name = self._resolve_name(user)
         self.discord_stt.feed_audio(converted, user, display_name)

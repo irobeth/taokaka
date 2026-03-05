@@ -1,7 +1,7 @@
 import logging
 import time
 from RealtimeSTT import AudioToTextRecorder
-from constants import INPUT_DEVICE_INDEX, DISCORD_PRIMARY_INPUT
+from constants import INPUT_DEVICE_INDEX
 
 
 class STT:
@@ -11,10 +11,21 @@ class STT:
         self.interface = interface
         self.API = self.API(self)
         self.enabled = True
+        self._recording_start_time = None
 
-    def process_text(self, text, speaker=None):
+    def process_text(self, text, speaker=None, source="local"):
         if not self.enabled:
             return
+        if self.signals.audio_mode != source:
+            return
+        if source == "local" and self.signals.AI_speaking:
+            self.interface.trace("dropped local STT (AI speaking)", source="STT")
+            return
+
+        if source == "local" and self._recording_start_time is not None:
+            elapsed = time.time() - self._recording_start_time
+            self.interface.trace(f"transcription complete ({elapsed:.2f}s)", source="STT")
+            self._recording_start_time = None
 
         if speaker is None:
             speaker = self.signals.active_voice_user
@@ -27,9 +38,12 @@ class STT:
             self.signals.new_message = True
 
     def recording_start(self):
+        self._recording_start_time = time.time()
+        self.interface.trace("recording started", source="STT")
         self.signals.human_speaking = True
 
     def recording_stop(self):
+        self.interface.trace("recording stopped, transcribing...", source="STT")
         self.signals.human_speaking = False
 
     def feed_audio(self, data):
@@ -39,9 +53,9 @@ class STT:
         self.interface.log("Starting", source="STT")
         recorder_config = {
             'spinner': False,
-            'model': 'distil-large-v3',
+            'model': 'deepdml/faster-whisper-large-v3-turbo-ct2',
             'language': 'en',
-            'use_microphone': not DISCORD_PRIMARY_INPUT,
+            'use_microphone': True,
             'input_device_index': INPUT_DEVICE_INDEX,
             'silero_sensitivity': 0.6,
             'silero_use_onnx': True,

@@ -25,6 +25,7 @@ class Signals:
         self.zeitgeist = ""             # latest conversation summary
         self.last_full_prompt = ""      # last assembled prompt sent to LLM
         self.stt_workers = []           # list of {"name": str, "status": "idle"|"speaking"|"transcribing"}
+        self._audio_mode = "local"      # "local" or "discord"
 
         # This flag indicates to all threads that they should immediately terminate
         self._terminate = False
@@ -137,3 +138,12 @@ class Signals:
     @terminate.setter
     def terminate(self, value):
         self._terminate = value
+
+    @property
+    def audio_mode(self):
+        return self._audio_mode
+
+    @audio_mode.setter
+    def audio_mode(self, value):
+        self._audio_mode = value
+        self.sio_queue.put(('audio_mode', value))

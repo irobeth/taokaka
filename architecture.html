@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tiferet Architecture</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #c9d1d9; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; overflow: hidden; }
+
+  svg { width: 100vw; height: 100vh; }
+
+  .node rect, .node ellipse { cursor: pointer; transition: filter 0.2s; }
+  .node:hover rect, .node:hover ellipse { filter: brightness(1.3) drop-shadow(0 0 8px rgba(255,255,255,0.15)); }
+  .node text { pointer-events: none; }
+
+  .link { fill: none; stroke-linecap: round; }
+  .link-label { font-size: 9px; fill: #8b949e; }
+
+  .zone-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
+
+  .tooltip {
+    position: absolute; background: #161b22; border: 1px solid #30363d;
+    border-radius: 6px; padding: 10px 14px; font-size: 12px; line-height: 1.5;
+    max-width: 320px; pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .tooltip .tt-title { font-weight: 700; color: #58a6ff; margin-bottom: 4px; }
+  .tooltip .tt-file { color: #8b949e; font-size: 11px; }
+  .tooltip .tt-desc { color: #c9d1d9; }
+
+  .legend { position: fixed; bottom: 16px; left: 16px; font-size: 11px; color: #8b949e; }
+  .legend span { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+  .title-bar { position: fixed; top: 0; left: 0; right: 0; padding: 12px 20px;
+    background: linear-gradient(180deg, #0d1117 60%, transparent); z-index: 10;
+    font-size: 14px; font-weight: 700; color: #58a6ff; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+<div class="title-bar">TIFERET &mdash; System Architecture</div>
+<div class="tooltip" id="tooltip"></div>
+<div class="legend">
+  <span style="background:#7ee787"></span>Audio Input &nbsp;
+  <span style="background:#58a6ff"></span>Processing &nbsp;
+  <span style="background:#d2a8ff"></span>LLM / AI &nbsp;
+  <span style="background:#ff7b72"></span>Audio Output &nbsp;
+  <span style="background:#ffa657"></span>Modules &nbsp;
+  <span style="background:#3d444d"></span>UI / Infra
+</div>
+
+<svg id="canvas"></svg>
+
+<script>
+const W = window.innerWidth, H = window.innerHeight;
+
+const nodes = [
+  // Audio Input zone
+  { id: "local_mic",    label: "Local Mic",            file: "stt.py", x: 120, y: 140, w: 130, h: 44, color: "#7ee787",
+    desc: "MacBook microphone via RealtimeSTT AudioToTextRecorder. Uses whisper large-v3-turbo. Muted by TTS during local playback." },
+  { id: "discord_vc_in", label: "Discord VC In",       file: "streamingSink.py", x: 360, y: 140, w: 130, h: 44, color: "#7ee787",
+    desc: "Per-user PCM streams from Discord voice channel. StreamingSink converts 48kHz stereo to 16kHz mono." },
+  { id: "stt_local",    label: "STT Recorder",         file: "stt.py", x: 120, y: 240, w: 130, h: 44, color: "#7ee787",
+    desc: "Local AudioToTextRecorder with turbo-ct2 model. VAD via Silero. Realtime preview via tiny.en." },
+  { id: "discord_stt",  label: "Discord STT",          file: "discordSTT.py", x: 360, y: 240, w: 130, h: 44, color: "#7ee787",
+    desc: "DiscordSTT manages per-user UserRecorder instances. Each user gets their own turbo-ct2 recorder thread." },
+  { id: "process_text", label: "process_text()",        file: "stt.py", x: 240, y: 340, w: 150, h: 44, color: "#58a6ff",
+    desc: "Central STT gate. Filters by: enabled, audio_mode==source, AI_speaking (local only). Appends attributed text to history." },
+
+  // Text Input
+  { id: "discord_text", label: "Discord Text",         file: "modules/discordClient.py", x: 540, y: 140, w: 130, h: 44, color: "#7ee787",
+    desc: "Discord text channel messages. Injected into prompt via module injection system." },
+
+  // Signals
+  { id: "signals",      label: "Signals",              file: "signals.py", x: 540, y: 340, w: 140, h: 50, color: "#3d444d", shape: "ellipse",
+    desc: "Shared state bus. Properties: audio_mode, AI_speaking, AI_thinking, human_speaking, history, discord_vc, stt_workers, patience, tts_engine, terminate, sio_queue." },
+
+  // Prompter
+  { id: "prompter",     label: "Prompter",             file: "prompter.py", x: 540, y: 460, w: 130, h: 44, color: "#58a6ff",
+    desc: "Runs every 0.1s. Triggers LLM when: new_message, patience expired, or unprocessed chat. Chooses text vs image LLM." },
+
+  // Injections
+  { id: "injections",   label: "Prompt Injections",    file: "modules/injection.py", x: 320, y: 460, w: 150, h: 44, color: "#ffa657",
+    desc: "Each module provides get_prompt_injection() returning prioritized text blocks. Assembled by abstractLLMWrapper into system prompt." },
+
+  // Modules
+  { id: "memory",       label: "Memory",               file: "modules/memory.py", x: 100, y: 520, w: 110, h: 38, color: "#ffa657",
+    desc: "ChromaDB vector store. Reflection loop generates Q&A memories. Recalled memories + forced memories injected into prompt." },
+  { id: "zeitgeist",    label: "Zeitgeist",             file: "modules/zeitgeist.py", x: 220, y: 520, w: 110, h: 38, color: "#ffa657",
+    desc: "Periodic conversation summarizer. Sends recent history to LLM for a rolling summary injected into context." },
+  { id: "custom_prompt", label: "CustomPrompt",        file: "modules/customPrompt.py", x: 340, y: 520, w: 120, h: 38, color: "#ffa657",
+    desc: "Static prompt injection module for additional context." },
+
+  // LLM
+  { id: "llm_wrapper",  label: "LLM Wrapper",          file: "llmWrappers/abstractLLMWrapper.py", x: 700, y: 460, w: 140, h: 44, color: "#d2a8ff",
+    desc: "Streams SSE from LM Studio /v1/chat/completions. mode=instruct, max_tokens=1000. Logs full response to history." },
+  { id: "text_llm",     label: "TextLLM",              file: "llmWrappers/textLLMWrapper.py", x: 660, y: 540, w: 100, h: 36, color: "#d2a8ff",
+    desc: "Text-only LLM wrapper. Builds messages from system prompt + injections + conversation history with context management." },
+  { id: "image_llm",    label: "ImageLLM",             file: "llmWrappers/imageLLMWrapper.py", x: 770, y: 540, w: 100, h: 36, color: "#d2a8ff",
+    desc: "Multimodal LLM wrapper. Includes screenshot data when multimodal module triggers." },
+
+  // Comprehensions
+  { id: "comprehensions", label: "Comprehensions",     file: "comprehensions/", x: 900, y: 460, w: 150, h: 44, color: "#d2a8ff",
+    desc: "Post-LLM response pipeline. Transforms AI output before TTS. Full response preserved in log/history, only processed text goes to speech." },
+  { id: "think_strip",  label: "TTSResponseExtractor", file: "comprehensions/tts_response_extractor.py", x: 920, y: 540, w: 160, h: 36, color: "#d2a8ff",
+    desc: "Splits on last </think> tag, returns only the spoken portion. If no </think> present, passes text through unchanged." },
+
+  // TTS
+  { id: "tts",          label: "TTS",                  file: "tts.py", x: 900, y: 340, w: 130, h: 44, color: "#ff7b72",
+    desc: "Generates .wav via Kokoro (ONNX) or F5-TTS-MLX. Routes playback by audio_mode. Mutes local STT mic during local playback." },
+  { id: "local_spk",    label: "Local Speakers",       file: "tts.py", x: 820, y: 240, w: 130, h: 44, color: "#ff7b72",
+    desc: "_play_local(): sounddevice OutputStream to MacBook speakers. Auto-detects channel count. Mutes STT mic for duration." },
+  { id: "discord_vc_out", label: "Discord VC Out",     file: "tts.py", x: 1000, y: 240, w: 130, h: 44, color: "#ff7b72",
+    desc: "_play_discord(): FFmpegPCMAudio piped to Discord voice connection." },
+
+  // UI
+  { id: "interface",    label: "Interface",             file: "interface.py", x: 700, y: 140, w: 130, h: 44, color: "#3d444d",
+    desc: "Rich Live dashboard with panels: Status, Online, Conversation, Prompt, Log, Zeitgeist, Memory Browser, Memories. Raw mode (--raw) dumps to stdout." },
+  { id: "socketio",     label: "Socket.IO",             file: "socketioServer.py", x: 880, y: 140, w: 120, h: 44, color: "#3d444d",
+    desc: "WebSocket API server. Bridges signals.sio_queue events to external frontends." },
+
+  // Main
+  { id: "main",         label: "main.py",              file: "main.py", x: 700, y: 50, w: 120, h: 36, color: "#58a6ff",
+    desc: "Orchestrator. Creates all components, wires cross-references (tts.stt, etc.), starts threads, handles SIGINT shutdown." },
+];
+
+const links = [
+  { source: "local_mic",     target: "stt_local",      label: "PCM" },
+  { source: "discord_vc_in", target: "discord_stt",     label: "16kHz mono" },
+  { source: "stt_local",     target: "process_text",    label: 'source="local"' },
+  { source: "discord_stt",   target: "process_text",    label: 'source="discord"' },
+  { source: "process_text",  target: "signals",         label: "history" },
+  { source: "discord_text",  target: "signals",         label: "messages" },
+  { source: "signals",       target: "prompter",        label: "state checks" },
+  { source: "prompter",      target: "llm_wrapper",     label: "prompt()" },
+  { source: "injections",    target: "llm_wrapper",     label: "system prompt" },
+  { source: "memory",        target: "injections",      label: "" },
+  { source: "zeitgeist",     target: "injections",      label: "" },
+  { source: "custom_prompt", target: "injections",      label: "" },
+  { source: "text_llm",      target: "llm_wrapper",     label: "" },
+  { source: "image_llm",     target: "llm_wrapper",     label: "" },
+  { source: "llm_wrapper",   target: "comprehensions",  label: "AI response" },
+  { source: "think_strip",   target: "comprehensions",  label: "" },
+  { source: "comprehensions", target: "tts",            label: "spoken text" },
+  { source: "tts",           target: "local_spk",       label: 'mode="local"' },
+  { source: "tts",           target: "discord_vc_out",  label: 'mode="discord"' },
+  { source: "tts",           target: "stt_local",       label: "mute/unmute", dashed: true },
+  { source: "signals",       target: "interface",        label: "sio_queue", dashed: true },
+  { source: "signals",       target: "socketio",         label: "sio_queue", dashed: true },
+  { source: "main",          target: "interface",        label: "", dashed: true },
+];
+
+// Zone backgrounds
+const zones = [
+  { label: "AUDIO INPUT",  x: 50,  y: 100, w: 470, h: 310, color: "#7ee787" },
+  { label: "LLM PIPELINE", x: 260, y: 420, w: 660, h: 180, color: "#d2a8ff" },
+  { label: "AUDIO OUTPUT",  x: 770, y: 200, w: 410, h: 120, color: "#ff7b72" },
+  { label: "UI / INFRA",   x: 640, y: 100, w: 410, h: 110, color: "#3d444d" },
+];
+
+const svg = d3.select("#canvas")
+  .attr("viewBox", `0 0 ${1150} ${620}`)
+  .append("g");
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.4, 3])
+  .on("zoom", e => svg.attr("transform", e.transform));
+d3.select("#canvas").call(zoom);
+
+// Initial transform to center
+const initScale = Math.min(W / 1150, H / 620) * 0.92;
+const initX = (W - 1150 * initScale) / 2;
+const initY = (H - 620 * initScale) / 2;
+d3.select("#canvas").call(zoom.transform,
+  d3.zoomIdentity.translate(initX, initY).scale(initScale));
+
+// Tooltip
+const tooltip = d3.select("#tooltip");
+
+// Draw zones
+svg.selectAll(".zone")
+  .data(zones).enter()
+  .append("rect")
+  .attr("x", d => d.x).attr("y", d => d.y)
+  .attr("width", d => d.w).attr("height", d => d.h)
+  .attr("rx", 8)
+  .attr("fill", d => d.color).attr("fill-opacity", 0.04)
+  .attr("stroke", d => d.color).attr("stroke-opacity", 0.15)
+  .attr("stroke-width", 1);
+
+svg.selectAll(".zone-label")
+  .data(zones).enter()
+  .append("text")
+  .attr("class", "zone-label")
+  .attr("x", d => d.x + 10).attr("y", d => d.y + 16)
+  .attr("fill", d => d.color).attr("fill-opacity", 0.4)
+  .text(d => d.label);
+
+// Build node lookup
+const nodeMap = {};
+nodes.forEach(n => { nodeMap[n.id] = n; });
+
+// Draw links
+const linkG = svg.selectAll(".link-g")
+  .data(links).enter()
+  .append("g");
+
+linkG.each(function(d) {
+  const s = nodeMap[d.source], t = nodeMap[d.target];
+  if (!s || !t) return;
+
+  const sx = s.x + s.w / 2, sy = s.y + s.h / 2;
+  const tx = t.x + t.w / 2, ty = t.y + t.h / 2;
+
+  // Compute edge attachment points
+  const dx = tx - sx, dy = ty - sy;
+  const len = Math.sqrt(dx*dx + dy*dy) || 1;
+  const nx = dx/len, ny = dy/len;
+
+  // Clamp to box edges
+  function edgePoint(cx, cy, w, h, dirx, diry) {
+    const scaleX = (w/2) / Math.abs(dirx || 0.001);
+    const scaleY = (h/2) / Math.abs(diry || 0.001);
+    const scale = Math.min(scaleX, scaleY);
+    return [cx + dirx * scale, cy + diry * scale];
+  }
+  const [x1, y1] = edgePoint(sx, sy, s.w, s.h, nx, ny);
+  const [x2, y2] = edgePoint(tx, ty, t.w, t.h, -nx, -ny);
+
+  const g = d3.select(this);
+
+  // Curved path
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const perpX = -(y2 - y1) * 0.1, perpY = (x2 - x1) * 0.1;
+
+  g.append("path")
+    .attr("class", "link")
+    .attr("d", `M${x1},${y1} Q${mx + perpX},${my + perpY} ${x2},${y2}`)
+    .attr("stroke", d.dashed ? "#30363d" : "#30363d")
+    .attr("stroke-width", d.dashed ? 1 : 1.5)
+    .attr("stroke-dasharray", d.dashed ? "4,4" : "none")
+    .attr("marker-end", "url(#arrow)");
+
+  if (d.label) {
+    g.append("text")
+      .attr("class", "link-label")
+      .attr("x", mx + perpX * 0.5)
+      .attr("y", my + perpY * 0.5 - 4)
+      .attr("text-anchor", "middle")
+      .text(d.label);
+  }
+});
+
+// Arrow marker
+svg.append("defs").append("marker")
+  .attr("id", "arrow").attr("viewBox", "0 0 10 6")
+  .attr("refX", 10).attr("refY", 3)
+  .attr("markerWidth", 8).attr("markerHeight", 6)
+  .attr("orient", "auto")
+  .append("path")
+  .attr("d", "M0,0 L10,3 L0,6 Z")
+  .attr("fill", "#484f58");
+
+// Draw nodes
+const nodeG = svg.selectAll(".node")
+  .data(nodes).enter()
+  .append("g")
+  .attr("class", "node")
+  .attr("transform", d => `translate(${d.x}, ${d.y})`);
+
+nodeG.each(function(d) {
+  const g = d3.select(this);
+  if (d.shape === "ellipse") {
+    g.append("ellipse")
+      .attr("cx", d.w / 2).attr("cy", d.h / 2)
+      .attr("rx", d.w / 2).attr("ry", d.h / 2)
+      .attr("fill", "#161b22")
+      .attr("stroke", d.color).attr("stroke-width", 1.5);
+  } else {
+    g.append("rect")
+      .attr("width", d.w).attr("height", d.h)
+      .attr("rx", 6)
+      .attr("fill", "#161b22")
+      .attr("stroke", d.color).attr("stroke-width", 1.5);
+  }
+
+  g.append("text")
+    .attr("x", d.w / 2).attr("y", d.h / 2)
+    .attr("text-anchor", "middle").attr("dominant-baseline", "central")
+    .attr("fill", d.color).attr("font-size", d.h < 40 ? 10 : 11).attr("font-weight", 600)
+    .text(d.label);
+});
+
+// Tooltip interactions
+nodeG.on("mouseover", function(event, d) {
+  tooltip
+    .style("opacity", 1)
+    .html(`<div class="tt-title">${d.label}</div><div class="tt-file">${d.file}</div><div class="tt-desc">${d.desc}</div>`);
+}).on("mousemove", function(event) {
+  tooltip
+    .style("left", (event.pageX + 14) + "px")
+    .style("top", (event.pageY - 10) + "px");
+}).on("mouseout", function() {
+  tooltip.style("opacity", 0);
+});
+</script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 import os
 import asyncio
 import time
+from functools import partial
 from dotenv import load_dotenv
 import discord
 from constants import DISCORD_MAX_MESSAGE_LENGTH
@@ -138,7 +139,7 @@ class DiscordClient(Module):
 
             # Lazily initialize per-user Discord STT (keeps model across reconnects)
             if self.discord_stt is None:
-                self.discord_stt = DiscordSTT(self.signals, self.interface, self.stt.process_text)
+                self.discord_stt = DiscordSTT(self.signals, self.interface, partial(self.stt.process_text, source="discord"))
                 self.discord_stt.init_model()
 
             vc = await voice.channel.connect()

@@ -22,15 +22,18 @@ from modules.audioPlayer import AudioPlayer
 from modules.vtubeStudio import VtubeStudio
 from modules.multimodal import MultiModal
 from modules.customPrompt import CustomPrompt
-from modules.memory import Memory
-from modules.zeitgeist import Zeitgeist
+from modules.memoryInjector import MemoryInjector
+from modules.zeitgeistInjector import ZeitgeistInjector
+from comprehensions.memory_extractor import MemoryExtractor
+from comprehensions.zeitgeist_extractor import ZeitgeistExtractor
 from socketioServer import SocketIOServer
 
 
 async def main():
     # CORE FILES
+    raw_mode = "--raw" in sys.argv
     signals = Signals()
-    interface = Interface(signals)
+    interface = Interface(signals, raw_mode=raw_mode)
     interface.start()
 
     interface.log("Starting Project...", source="Main")
@@ -56,6 +59,7 @@ async def main():
     stt = STT(signals, interface)
     # Create TTS
     tts = TTS(signals, interface)
+    tts.stt = stt
     # Create LLMWrappers
     llmState = LLMState()
     llms = {
@@ -67,21 +71,30 @@ async def main():
 
     # Create Discord bot
     modules['discord'] = DiscordClient(signals, stt, tts, interface, enabled=True)
+
     # Create Twitch bot
-    modules['twitch'] = TwitchClient(signals, enabled=False)
+    #modules['twitch'] = TwitchClient(signals, enabled=False)
+
     # Create audio player
-    modules['audio_player'] = AudioPlayer(signals, enabled=True)
+    #modules['audio_player'] = AudioPlayer(signals, enabled=True)
+
     # Create Vtube Studio plugin
     #modules['vtube_studio'] = VtubeStudio(signals, enabled=True)
+
     # Create Multimodal module
     modules['multimodal'] = MultiModal(signals, enabled=False)
+
     # Create Custom Prompt module
     modules['custom_prompt'] = CustomPrompt(signals, enabled=True)
-    # Create Memory module
-    modules['memory'] = Memory(signals, enabled=True)
+
+    # Create Memory injector + extractor
+    modules['memory'] = MemoryInjector(signals, enabled=True)
     interface._delete_memory_fn = modules['memory'].API.delete_memory
-    # Create Zeitgeist module
-    modules['zeitgeist'] = Zeitgeist(signals, enabled=True)
+    modules['memory_extractor'] = MemoryExtractor(signals, modules['memory'], enabled=True)
+
+    # Create Zeitgeist injector + extractor
+    modules['zeitgeist'] = ZeitgeistInjector(signals, enabled=True)
+    modules['zeitgeist_extractor'] = ZeitgeistExtractor(signals, modules['zeitgeist'], enabled=True)
 
     # Create Socket.io server
     # The specific llmWrapper it gets doesn't matter since state is shared between all llmWrappers
