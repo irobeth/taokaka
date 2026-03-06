@@ -16,7 +16,11 @@ _PROMPT = (
     "summary of the discussion (no more than 3 or 4 sentences).\n\n"
     "After the summary, on a new line starting with 'KEYWORDS:', list 5-10 single-word "
     "keywords that capture the most relevant topics, entities, and themes from this "
-    "conversation. Separate keywords with commas."
+    "conversation. Separate keywords with commas.\n\n"
+    "Then, on a new line starting with 'ATTRIBUTIONS:', list which user introduced or "
+    "discussed each keyword, in the format user>keyword, separated by commas. "
+    "Only include attributions where a specific user clearly brought up or drove that topic. "
+    "Example: ATTRIBUTIONS: irobeth>rust, chakrila>streaming, irobeth>performance"
 )
 
 
@@ -88,15 +92,29 @@ class ZeitgeistExtractor(Module):
             )
             raw = response.json()["choices"][0]["message"]["content"].strip()
 
-            # Split out KEYWORDS: line if the LLM produced one
-            summary = raw
+            # Parse structured lines from the LLM output
+            summary_lines = []
             llm_keywords = []
+            attributions = {}  # keyword -> [users]
             for line in raw.splitlines():
-                if line.strip().upper().startswith("KEYWORDS:"):
-                    keyword_text = line.split(":", 1)[1].strip()
+                stripped = line.strip()
+                if stripped.upper().startswith("KEYWORDS:"):
+                    keyword_text = stripped.split(":", 1)[1].strip()
                     llm_keywords = [k.strip().lower() for k in keyword_text.split(",") if k.strip()]
-                    summary = raw[:raw.index(line)].strip()
-                    break
+                elif stripped.upper().startswith("ATTRIBUTIONS:"):
+                    attr_text = stripped.split(":", 1)[1].strip()
+                    for pair in attr_text.split(","):
+                        pair = pair.strip()
+                        if ">" in pair:
+                            user, kw = pair.split(">", 1)
+                            user, kw = user.strip().lower(), kw.strip().lower()
+                            if user and kw:
+                                attributions.setdefault(kw, [])
+                                if user not in attributions[kw]:
+                                    attributions[kw].append(user)
+                else:
+                    summary_lines.append(line)
+            summary = "\n".join(summary_lines).strip()
 
             # Also extract keywords from the transcript itself via stopword filtering
             transcript_keywords = extract_keywords(transcript)
@@ -111,6 +129,7 @@ class ZeitgeistExtractor(Module):
 
             self.zeitgeist_injector.set_summary(summary)
             self.signals.extractor_signals["keywords"] = merged
+            self.signals.extractor_signals["keyword_attributions"] = attributions
             self._last_summary_time = time.time()
             self._last_summarized_count = len(self.signals.history)
         except Exception as e:

@@ -136,6 +136,24 @@ class Interface:
 
     # ── Keyboard input ────────────────────────────────────────────────────
 
+    # Panel name -> shortcut key
+    _PANEL_KEYS = {
+        b"o": "online",
+        b"i": "pipeline",
+        b"c": "conversation",
+        b"b": "memory_tree",
+        b"e": "memories",
+        b"l": "trace",
+        b"z": "zeitgeist",
+        b"h": "thoughts",
+        b"p": "prompt",
+    }
+
+    def _select_panel(self, name):
+        with self._lock:
+            if name in _PANELS:
+                self._active_panel_idx = _PANELS.index(name)
+
     def _cycle_panel(self):
         with self._lock:
             self._active_panel_idx = (self._active_panel_idx + 1) % len(_PANELS)
@@ -277,16 +295,18 @@ class Interface:
 
                 if ch == b"\t":
                     self._cycle_panel()
-                elif ch == b"t":
+                elif ch == b"`":
                     with self._lock:
                         self._typing_mode = True
                         self._typing_buffer = ""
-                elif ch == b"m":
+                elif ch == b"a":
                     cur = self.signals.audio_mode
                     self.signals.audio_mode = "discord" if cur == "local" else "local"
                 elif ch == b"r":
                     with self._lock:
                         self._include_raw = not self._include_raw
+                elif ch in self._PANEL_KEYS:
+                    self._select_panel(self._PANEL_KEYS[ch])
                 elif ch in (b"\r", b"\n"):
                     self._toggle_forced()
                 elif ch == b"\x1b":
@@ -361,13 +381,28 @@ class Interface:
         mode_color = "green" if s.audio_mode == "local" else "yellow"
         mode_label = f"[{mode_color}]{s.audio_mode}[/{mode_color}]"
 
+        # Attention span bar
+        elapsed = time.time() - s.last_message_time if s.last_message_time else 0
+        remaining = max(0, s.patience - elapsed)
+        ratio = min(1.0, elapsed / s.patience) if s.patience > 0 else 0
+        bar_width = 12
+        filled = int(bar_width * (1 - ratio))
+        empty = bar_width - filled
+        if ratio >= 1.0:
+            bar_color = "red"
+        elif ratio >= 0.7:
+            bar_color = "yellow"
+        else:
+            bar_color = "green"
+        bar = f"[{bar_color}]{'█' * filled}{'░' * empty}[/{bar_color}] [dim]{int(remaining)}s[/dim]"
+
         left = Text.from_markup(
             f" {dot(s.stt_ready)} STT {'[green]ON[/green]' if self._stt and self._stt.enabled else '[red]OFF[/red]'}  "
             f"{dot(s.tts_ready)} TTS  "
             f"{dot(disc_up)} Discord  "
             f"[dim]│[/dim]  Mode: {mode_label}  "
             f"[dim]│[/dim]  Engine: [cyan]{s.tts_engine}[/cyan]  "
-            f"[dim]│[/dim]  Patience: [cyan]{s.patience}s[/cyan]  "
+            f"[dim]│[/dim]  Attention Span: {bar}  "
             f"[dim]│[/dim]  {system_label}"
             f"  [dim]│[/dim]  [cyan]{active_name}[/cyan]"
         )
@@ -461,7 +496,7 @@ class Interface:
             text.append("No prompt sent yet", style="dim")
         return Panel(
             text,
-            title="[bold dim]Last Prompt Details[/bold dim]",
+            title="[bold dim]Last [u]P[/u]rompt Details[/bold dim]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -491,7 +526,7 @@ class Interface:
 
         return Panel(
             text,
-            title="[bold]Conversation[/bold]",
+            title="[bold][u]C[/u]onversation[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -523,7 +558,7 @@ class Interface:
 
         return Panel(
             text,
-            title="[bold]Log[/bold]",
+            title="[bold][u]L[/u]og[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -559,7 +594,7 @@ class Interface:
                     )
         return Panel(
             text,
-            title="[bold]Online[/bold]",
+            title="[bold][u]O[/u]nline[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -622,7 +657,7 @@ class Interface:
 
         return Panel(
             text,
-            title="[bold]Pipeline[/bold]",
+            title="[bold]P[u]i[/u]peline[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -646,7 +681,7 @@ class Interface:
             text.append("Waiting for enough conversation…", style="dim")
         return Panel(
             text,
-            title="[bold]Zeitgeist[/bold]",
+            title="[bold][u]Z[/u]eitgeist[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -675,7 +710,7 @@ class Interface:
             text.append("No thoughts yet", style="dim")
         return Panel(
             text,
-            title="[bold]Thoughts[/bold]",
+            title="[bold]T[u]h[/u]oughts[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -703,8 +738,8 @@ class Interface:
         all_lines.append((f"Memories ({len(all_mems)} total)", "bold", None))
 
         # Display types in a fixed order, skip empty ones
-        type_order = ["core", "personal", "about_user", "opinion", "long_term",
-                      "short_term", "long-term", "short-term", "unknown"]
+        type_order = ["core", "personal", "about_user", "opinion", "definition",
+                      "long_term", "short_term", "long-term", "short-term", "unknown"]
         for mem_type in type_order:
             entries = grouped.get(mem_type, [])
             if not entries:
@@ -794,7 +829,7 @@ class Interface:
 
         return Panel(
             text,
-            title="[bold]Memory Browser[/bold]",
+            title="[bold]Memory [u]B[/u]rowser[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,
@@ -824,6 +859,16 @@ class Interface:
         else:
             all_lines.append(("  none", "dim"))
 
+        # Curiosities section
+        curiosities = self.signals.extractor_signals.get("curiosities", [])
+        all_lines.append(("", ""))
+        all_lines.append(("Curious About", "bold dim"))
+        if curiosities:
+            for c in curiosities[:5]:
+                all_lines.append((f"  ? {c}", "dim yellow"))
+        else:
+            all_lines.append(("  nothing yet", "dim"))
+
         all_lines.append(("", ""))
         recent = self.signals.recent_memories
         all_lines.append(("Generated", "bold dim"))
@@ -840,7 +885,7 @@ class Interface:
 
         return Panel(
             text,
-            title="[bold]Memory[/bold]",
+            title="[bold]M[u]e[/u]mory[/bold]",
             subtitle=self._subtitle(pg, total),
             subtitle_align="right",
             box=box.ROUNDED,

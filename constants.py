@@ -10,7 +10,7 @@ INPUT_DEVICE_INDEX = 0
 OUTPUT_DEVICE_INDEX = 1
 
 # How many seconds to wait before prompting AI
-PATIENCE = 60
+PATIENCE = 15
 
 # URL of LLM API Endpoint
 # LLM_ENDPOINT = ""
@@ -132,7 +132,7 @@ STOP_STRINGS = []
 # MEMORY SECTION: Constants relevant to forming new memories
 
 # Valid memory types for metadata classification
-MEMORY_TYPES = ["core", "personal", "about_user", "opinion", "long_term", "short_term"]
+MEMORY_TYPES = ["core", "personal", "about_user", "opinion", "long_term", "short_term", "definition"]
 
 MEMORY_PROMPT = (
     "\nGiven only the information above, what are 3 most salient high level questions "
@@ -151,6 +151,35 @@ MEMORY_PROMPT = (
     "{qa}type:about_user|user:irobeth|keywords:programming,python|title:Likes Python\n"
     "Q: What does irobeth enjoy? A: irobeth enjoys programming in Python.\n"
     "Output only the metadata and Q&A pairs, no other text."
+)
+
+CURIOSITY_PROMPT = (
+    "\nYou are reviewing a conversation as Taokaka. Based on what was just discussed, "
+    "what are 2-3 things that genuinely catch your attention or make you curious? "
+    "These could be: an interesting claim someone made, a topic worth exploring further, "
+    "something you'd want to ask about, or a thread that felt unfinished.\n"
+    "For each curiosity, output a metadata line then the curiosity on the next line.\n"
+    "Metadata format: type:short_term|user:<USERNAME_OR_personal>|keywords:<COMMA_SEPARATED_KEYWORDS>|title:<3_WORD_TITLE>\n"
+    "The curiosity should be phrased as a question or observation you'd want to follow up on.\n"
+    "Separate each entry with \"{qa}\".\n"
+    "Example:\n"
+    "{qa}type:short_term|user:irobeth|keywords:rust,programming,migration|title:Rust Migration Why\n"
+    "irobeth mentioned switching from Python to Rust — what's driving that? Performance? Just curiosity?\n"
+    "Output only the metadata and curiosity entries, no other text."
+)
+
+CURIOSITY_EVAL_PROMPT = (
+    "\nYou are reviewing your own earlier curiosities against what has happened in conversation since.\n"
+    "For each curiosity below, decide: was it addressed or answered in the conversation? "
+    "If YES, write a concise summary of the answer as a long-term memory. "
+    "If NO, write KEEP if it's still interesting, or DROP if it's no longer relevant.\n\n"
+    "Curiosities:\n{curiosities}\n\n"
+    "Recent conversation:\n{conversation}\n\n"
+    "For each curiosity, respond with one line in this format:\n"
+    "ANSWERED: <memory text to save as long_term> — include metadata: type:long_term|user:<USER>|keywords:<KW>|title:<TITLE>\n"
+    "or: KEEP\n"
+    "or: DROP\n"
+    "Separate each response with \"{qa}\". Respond in the same order as the curiosities above."
 )
 
 # How many messages in the history to include for querying the database.

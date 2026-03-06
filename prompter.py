@@ -66,6 +66,8 @@ class Prompter:
                 llmWrapper = self.chooseLLM()
                 llmWrapper.prompt()
                 self.signals.last_message_time = time.time()
+                # Signal that a prompt cycle completed (for curiosity generation)
+                self.signals.extractor_signals["prompt_completed"] = time.time()
 
             # Sleep for 0.1 seconds before checking again.
             time.sleep(0.1)

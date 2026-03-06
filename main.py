@@ -26,9 +26,12 @@ from modules.multimodal import MultiModal
 from modules.customPrompt import CustomPrompt
 from modules.memoryInjector import MemoryInjector
 from modules.zeitgeistInjector import ZeitgeistInjector
+from modules.curiosityInjector import CuriosityInjector
 from comprehensions.memory_extractor import MemoryExtractor
 from comprehensions.zeitgeist_extractor import ZeitgeistExtractor
 from comprehensions.keyword_extractor import KeywordExtractor
+from comprehensions.curiosity_extractor import CuriosityExtractor
+from comprehensions.definition_extractor import DefinitionExtractor
 from socketioServer import SocketIOServer
 
 
@@ -110,6 +113,13 @@ async def main():
 
     # Create Keyword extractor (lightweight, no LLM)
     modules['keyword_extractor'] = KeywordExtractor(signals, enabled=True)
+
+    # Create Curiosity injector + extractor
+    modules['curiosity'] = CuriosityInjector(signals, enabled=True)
+    modules['curiosity_extractor'] = CuriosityExtractor(signals, modules['memory'], interface, enabled=True)
+
+    # Create Definition extractor (defines unknown keywords, links users to topics)
+    modules['definition_extractor'] = DefinitionExtractor(signals, modules['memory'], interface, enabled=True)
 
     # Create Socket.io server
     # The specific llmWrapper it gets doesn't matter since state is shared between all llmWrappers
