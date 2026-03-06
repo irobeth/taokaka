@@ -27,6 +27,7 @@ class Signals:
         self.stt_workers = []           # list of {"name": str, "status": "idle"|"speaking"|"transcribing"}
         self._audio_mode = "local"      # "local" or "discord"
         self.extractor_signals = {}     # shared dict for extractor→injector data
+        self.max_profanity_severity = 2 # 1=mild, 2=moderate, 3=explicit, 4=extreme
         self.recent_thoughts = []       # list of {"thought": str, "timestamp": float}
 
         # This flag indicates to all threads that they should immediately terminate

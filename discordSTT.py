@@ -4,6 +4,7 @@ import time
 
 from faster_whisper import WhisperModel
 from RealtimeSTT import AudioToTextRecorder
+from constants import STT_VOCABULARY
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class UserRecorder:
                 realtime_model_type='tiny.en',
                 realtime_processing_pause=0.2,
                 compute_type='auto',
+                initial_prompt=STT_VOCABULARY,
                 on_recording_start=self._on_recording_start,
                 on_recording_stop=self._on_recording_stop,
                 level=logging.ERROR,

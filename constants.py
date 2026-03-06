@@ -9,6 +9,11 @@
 INPUT_DEVICE_INDEX = 0
 OUTPUT_DEVICE_INDEX = 1
 
+# Vocabulary hints for STT (Whisper initial_prompt).
+# Include names, jargon, or words that get frequently mistranscribed.
+# Whisper uses this as context to bias transcription toward these spellings.
+STT_VOCABULARY = "Taokaka, Chakrila, irobeth"
+
 # How many seconds to wait before prompting AI
 PATIENCE = 15
 

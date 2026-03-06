@@ -9,6 +9,7 @@ import time
 import tty
 from collections import deque
 from datetime import datetime
+from profanity import SEVERITY_LABELS
 
 from rich import box
 from rich.console import Console
@@ -396,12 +397,15 @@ class Interface:
             bar_color = "green"
         bar = f"[{bar_color}]{'█' * filled}{'░' * empty}[/{bar_color}] [dim]{int(remaining)}s[/dim]"
 
+        rating = SEVERITY_LABELS.get(s.max_profanity_severity, "?")
+
         left = Text.from_markup(
             f" {dot(s.stt_ready)} STT {'[green]ON[/green]' if self._stt and self._stt.enabled else '[red]OFF[/red]'}  "
             f"{dot(s.tts_ready)} TTS  "
             f"{dot(disc_up)} Discord  "
             f"[dim]│[/dim]  Mode: {mode_label}  "
             f"[dim]│[/dim]  Engine: [cyan]{s.tts_engine}[/cyan]  "
+            f"[dim]│[/dim]  Rating: [yellow]{rating}[/yellow]  "
             f"[dim]│[/dim]  Attention Span: {bar}  "
             f"[dim]│[/dim]  {system_label}"
             f"  [dim]│[/dim]  [cyan]{active_name}[/cyan]"

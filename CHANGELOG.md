@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.9 — 2026-03-05
+
+### New Features
+- **Profanity filter with severity ratings** — uses dsojevic/profanity-list (434 words, severity 1-4)
+  - Severity labels: PG-13, R, NC-17, 4chan
+  - Default max severity: R (level 2)
+  - Severity overrides for specific words (e.g. "fuck" → R instead of 4chan)
+  - Violations trigger automatic LLM re-prompt asking to rephrase (up to 2 retries)
+  - Hard blacklist filter still works as final fallback
+- **STT vocabulary hints** — Whisper `initial_prompt` for custom names (Taokaka, Chakrila, irobeth)
+- **Rating display** in header bar showing current profanity rating
+
+### Changes
+- Audio mode toggle moved from `m` to `a`
+- Panel keybinds: direct selection via o/i/c/b/e/l/z/h/p with underlined hints
+- Text input mode changed from `t` to backtick (`` ` ``)
+- Default attention span reduced to 15s
+- Memories panel now shows active curiosities
+
 ## 0.1.8 — 2026-03-05
 
 ### New Features

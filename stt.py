@@ -1,7 +1,7 @@
 import logging
 import time
 from RealtimeSTT import AudioToTextRecorder
-from constants import INPUT_DEVICE_INDEX
+from constants import INPUT_DEVICE_INDEX, STT_VOCABULARY
 
 
 class STT:
@@ -66,6 +66,7 @@ class STT:
             'realtime_processing_pause': 0.2,
             'realtime_model_type': 'tiny.en',
             'compute_type': 'auto',
+            'initial_prompt': STT_VOCABULARY,
             'on_recording_start': self.recording_start,
             'on_recording_stop': self.recording_stop,
             'level': logging.ERROR
