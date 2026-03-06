@@ -1,7 +1,9 @@
 # Python Module Imports
 import warnings
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
+import os
 import signal
+import subprocess
 import sys
 import time
 import threading
@@ -26,6 +28,7 @@ from modules.memoryInjector import MemoryInjector
 from modules.zeitgeistInjector import ZeitgeistInjector
 from comprehensions.memory_extractor import MemoryExtractor
 from comprehensions.zeitgeist_extractor import ZeitgeistExtractor
+from comprehensions.keyword_extractor import KeywordExtractor
 from socketioServer import SocketIOServer
 
 
@@ -90,11 +93,23 @@ async def main():
     # Create Memory injector + extractor
     modules['memory'] = MemoryInjector(signals, enabled=True)
     interface._delete_memory_fn = modules['memory'].API.delete_memory
+    interface._stt = stt
+    def _submit_typed_text(text):
+        attributed = f"User: {text}"
+        interface.log(attributed, source="Text")
+        signals.history.append({"role": "user", "content": attributed, "timestamp": time.time()})
+        signals.last_message_time = time.time()
+        if not signals.AI_speaking:
+            signals.new_message = True
+    interface._submit_text_fn = _submit_typed_text
     modules['memory_extractor'] = MemoryExtractor(signals, modules['memory'], enabled=True)
 
     # Create Zeitgeist injector + extractor
     modules['zeitgeist'] = ZeitgeistInjector(signals, enabled=True)
     modules['zeitgeist_extractor'] = ZeitgeistExtractor(signals, modules['zeitgeist'], enabled=True)
+
+    # Create Keyword extractor (lightweight, no LLM)
+    modules['keyword_extractor'] = KeywordExtractor(signals, enabled=True)
 
     # Create Socket.io server
     # The specific llmWrapper it gets doesn't matter since state is shared between all llmWrappers
@@ -115,9 +130,56 @@ async def main():
         module_threads[name] = module_thread
         module_thread.start()
 
+    # Frontend process manager
+    frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+    frontend_proc = None
+
+    def start_frontend():
+        nonlocal frontend_proc
+        try:
+            frontend_proc = subprocess.Popen(
+                ["npm", "run", "dev"],
+                cwd=frontend_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            interface.log(f"Frontend started (pid {frontend_proc.pid})", source="Main")
+        except Exception as e:
+            interface.log(f"Failed to start frontend: {e}", source="Main")
+            frontend_proc = None
+
+    def check_ws_alive():
+        """Try to connect to the WebSocket and return True if it responds."""
+        import socket
+        try:
+            s = socket.create_connection(("localhost", 3000), timeout=2)
+            s.close()
+            return True
+        except Exception:
+            return False
+
+    start_frontend()
+    last_frontend_check = time.time()
+
     while not signals.terminate:
         time.sleep(0.1)
+
+        # Check frontend health every 15 seconds
+        if time.time() - last_frontend_check >= 15:
+            last_frontend_check = time.time()
+            proc_dead = frontend_proc is None or frontend_proc.poll() is not None
+            if proc_dead or not check_ws_alive():
+                if frontend_proc and frontend_proc.poll() is None:
+                    frontend_proc.terminate()
+                interface.log("Frontend down, restarting...", source="Main")
+                start_frontend()
+
     interface.log("TERMINATING", source="Main")
+
+    # Kill frontend process
+    if frontend_proc and frontend_proc.poll() is None:
+        frontend_proc.terminate()
+        interface.log("Frontend stopped", source="Main")
 
     # Wait for child threads to exit before exiting main thread
 

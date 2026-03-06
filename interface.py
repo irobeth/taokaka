@@ -21,19 +21,25 @@ _WIDTH = 250
 _HEIGHT = 75
 _BODY_H = _HEIGHT - 3  # header takes 3 rows
 
-_PANELS = ["online", "conversation", "memory_tree", "memories", "trace", "zeitgeist", "prompt"]
+_PANELS = ["online", "pipeline", "conversation", "memory_tree", "memories", "trace", "zeitgeist", "thoughts", "prompt"]
 
 # Explicit heights for every panel (including border).
 # Inner content lines = height - 2.
+_LEFT_ONLINE_H = 20
+_LEFT_STATUS_H = 16
+_LEFT_PIPELINE_H = _BODY_H - _LEFT_STATUS_H - _LEFT_ONLINE_H  # fills left remainder
+
 _PANEL_H = {
     "conversation": 16,
     "trace":        14,
     "prompt":       _BODY_H - 16 - 14,          # fills center remainder
-    "status":       16,
-    "online":       _BODY_H - 16,               # remaining space in left column
+    "status":       _LEFT_STATUS_H,
+    "online":       _LEFT_ONLINE_H,
+    "pipeline":     _LEFT_PIPELINE_H,
     "zeitgeist":    10,
-    "memory_tree":  (_BODY_H - 10) // 2,        # half of right remainder
-    "memories":     _BODY_H - 10 - (_BODY_H - 10) // 2,  # other half
+    "thoughts":     12,
+    "memory_tree":  (_BODY_H - 10 - 12) // 2,
+    "memories":     _BODY_H - 10 - 12 - (_BODY_H - 10 - 12) // 2,
 }
 _INNER = {k: v - 2 for k, v in _PANEL_H.items()}
 
@@ -77,6 +83,12 @@ class Interface:
         self._tree_total_lines = 0      # total line count, set during render
         self._delete_confirm_id = None  # memory ID pending delete confirmation
         self._delete_memory_fn = None   # callback wired from main.py
+        self._stt = None                # STT reference wired from main.py
+
+        # Text input mode
+        self._typing_mode = False
+        self._typing_buffer = ""
+        self._submit_text_fn = None     # callback wired from main.py
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -194,6 +206,12 @@ class Interface:
         if self._tree_cursor >= len(self._tree_selectable) - 1:
             self._tree_cursor = max(0, self._tree_cursor - 1)
 
+    def _toggle_local_stt(self):
+        if self._stt:
+            self._stt.enabled = not self._stt.enabled
+            state = "ON" if self._stt.enabled else "OFF"
+            self.log(f"Local STT: {state}", source="Interface")
+
     def _toggle_forced(self):
         if _PANELS[self._active_panel_idx] != "memory_tree":
             return
@@ -216,6 +234,39 @@ class Interface:
                     continue
                 ch = os.read(fd, 1)
 
+                # Typing mode: capture all input into buffer
+                if self._typing_mode:
+                    if ch == b"\x1b":
+                        # Escape: cancel typing
+                        with self._lock:
+                            self._typing_mode = False
+                            self._typing_buffer = ""
+                        continue
+                    elif ch in (b"\r", b"\n"):
+                        # Enter: submit text
+                        with self._lock:
+                            text = self._typing_buffer.strip()
+                            self._typing_mode = False
+                            self._typing_buffer = ""
+                        if text and self._submit_text_fn:
+                            self._submit_text_fn(text)
+                        continue
+                    elif ch in (b"\x7f", b"\x08"):
+                        # Backspace
+                        with self._lock:
+                            self._typing_buffer = self._typing_buffer[:-1]
+                        continue
+                    else:
+                        # Regular character
+                        try:
+                            c = ch.decode("utf-8", errors="ignore")
+                            if c and c.isprintable():
+                                with self._lock:
+                                    self._typing_buffer += c
+                        except Exception:
+                            pass
+                        continue
+
                 # Delete confirmation intercept: next key is Y/N answer
                 if self._delete_confirm_id is not None:
                     with self._lock:
@@ -226,6 +277,10 @@ class Interface:
 
                 if ch == b"\t":
                     self._cycle_panel()
+                elif ch == b"t":
+                    with self._lock:
+                        self._typing_mode = True
+                        self._typing_buffer = ""
                 elif ch == b"m":
                     cur = self.signals.audio_mode
                     self.signals.audio_mode = "discord" if cur == "local" else "local"
@@ -247,6 +302,11 @@ class Interface:
                             self._cursor_up()
                         elif seq == b"[B":    # down arrow
                             self._cursor_down()
+                        elif seq == b"[1":    # function keys (\x1b[1X~)
+                            if select.select([sys.__stdin__], [], [], 0.05)[0]:
+                                tail = os.read(fd, 2)
+                                if tail == b"5~":   # F5
+                                    self._toggle_local_stt()
                         elif seq == b"[3":    # Delete key (\x1b[3~)
                             if select.select([sys.__stdin__], [], [], 0.05)[0]:
                                 tail = os.read(fd, 1)
@@ -302,7 +362,7 @@ class Interface:
         mode_label = f"[{mode_color}]{s.audio_mode}[/{mode_color}]"
 
         left = Text.from_markup(
-            f" {dot(s.stt_ready)} STT  "
+            f" {dot(s.stt_ready)} STT {'[green]ON[/green]' if self._stt and self._stt.enabled else '[red]OFF[/red]'}  "
             f"{dot(s.tts_ready)} TTS  "
             f"{dot(disc_up)} Discord  "
             f"[dim]│[/dim]  Mode: {mode_label}  "
@@ -320,11 +380,20 @@ class Interface:
         text.append(" " * gap)
         text.append_text(right)
 
+        # Typing mode overlay
+        if self._typing_mode:
+            typing_text = Text.from_markup(
+                f"\n [bold yellow]> [/bold yellow][white]{self._typing_buffer}[/white][blink]▌[/blink]"
+                f"  [dim](Enter to send, Esc to cancel)[/dim]"
+            )
+            text.append_text(typing_text)
+
         return Panel(
             text,
             title="[bold white]✦ TAOKAKA ✦[/bold white]",
             box=box.HEAVY,
             padding=(0, 1),
+            height=5 if self._typing_mode else None,
         )
 
     def _render_status(self):
@@ -498,11 +567,78 @@ class Interface:
             border_style=self._border("online"),
         )
 
+    def _render_pipeline(self):
+        s = self.signals
+        text = Text(overflow="fold")
+        text.append("\n")
+
+        # Core prompt-loop signals
+        new_msg = "[green]YES[/green]" if s.new_message else "[dim]no[/dim]"
+        text.append_text(Text.from_markup(f"  new_message: {new_msg}\n"))
+
+        thinking = "[yellow]YES[/yellow]" if s.AI_thinking else "[dim]no[/dim]"
+        text.append_text(Text.from_markup(f"  AI_thinking: {thinking}\n"))
+
+        speaking = "[yellow]YES[/yellow]" if s.AI_speaking else "[dim]no[/dim]"
+        text.append_text(Text.from_markup(f"  AI_speaking: {speaking}\n"))
+
+        human = "[cyan]YES[/cyan]" if s.human_speaking else "[dim]no[/dim]"
+        text.append_text(Text.from_markup(f"  human_speaking: {human}\n"))
+
+        # Pending queues
+        twitch_n = len(s.recentTwitchMessages)
+        discord_n = len(s.recentDiscordMessages)
+        history_n = len(s.history)
+        text.append_text(Text.from_markup(f"  [dim]local queue:[/dim]   {history_n} msgs\n"))
+        text.append_text(Text.from_markup(f"  [dim]discord queue:[/dim] {discord_n}\n"))
+        text.append_text(Text.from_markup(f"  [dim]twitch queue:[/dim]  {twitch_n}\n"))
+
+        try:
+            sio_depth = s.sio_queue.qsize()
+        except Exception:
+            sio_depth = "?"
+        text.append_text(Text.from_markup(f"  [dim]sio_queue:[/dim]    {sio_depth}\n"))
+
+        # Extractor signals
+        ext = s.extractor_signals
+        text.append("\n")
+        text.append_text(Text.from_markup("  [bold dim]Extractor Signals[/bold dim]\n"))
+        if ext:
+            for key, val in ext.items():
+                if isinstance(val, list):
+                    display = ", ".join(str(v) for v in val[:8])
+                    if len(val) > 8:
+                        display += f" (+{len(val) - 8})"
+                else:
+                    display = str(val)[:60]
+                text.append(f"  {key}: ", style="dim cyan")
+                text.append(f"{display}\n", style="dim")
+        else:
+            text.append("  [none]\n", style="dim")
+
+        all_lines = text.plain.splitlines()
+        pg = 1
+        total = 1
+
+        return Panel(
+            text,
+            title="[bold]Pipeline[/bold]",
+            subtitle=self._subtitle(pg, total),
+            subtitle_align="right",
+            box=box.ROUNDED,
+            padding=(0, 1),
+            border_style=self._border("pipeline"),
+        )
+
     def _render_zeitgeist(self):
         z = self.signals.zeitgeist
         text = Text(overflow="fold")
+        keywords = self.signals.extractor_signals.get("keywords", [])
         if z:
-            lines = z.splitlines()
+            full = z
+            if keywords:
+                full += "\n[keywords] " + ", ".join(keywords[:12])
+            lines = full.splitlines()
             visible, pg, total = self._paginate(lines, "zeitgeist")
             text.append("\n".join(visible), style="italic dim white")
         else:
@@ -516,6 +652,35 @@ class Interface:
             box=box.ROUNDED,
             padding=(0, 1),
             border_style=self._border("zeitgeist"),
+        )
+
+    def _render_thoughts(self):
+        thoughts = self.signals.recent_thoughts
+        text = Text(overflow="fold")
+        if thoughts:
+            all_lines = []
+            for entry in thoughts:
+                ts = datetime.fromtimestamp(entry["timestamp"]).strftime("%H:%M:%S")
+                for line in entry["thought"].splitlines():
+                    if line.strip():
+                        all_lines.append((ts, line.strip()))
+                        ts = ""  # only show timestamp on first line
+            visible, pg, total = self._paginate(all_lines, "thoughts")
+            for ts, line in visible:
+                if ts:
+                    text.append(f"{ts} ", style="dim")
+                text.append(f"{line}\n", style="dim magenta")
+        else:
+            pg, total = 1, 1
+            text.append("No thoughts yet", style="dim")
+        return Panel(
+            text,
+            title="[bold]Thoughts[/bold]",
+            subtitle=self._subtitle(pg, total),
+            subtitle_align="right",
+            box=box.ROUNDED,
+            padding=(0, 1),
+            border_style=self._border("thoughts"),
         )
 
     def _render_memory_tree(self):
@@ -696,7 +861,8 @@ class Interface:
         )
         layout["left"].split_column(
             Layout(name="status", size=_PANEL_H["status"]),
-            Layout(name="online"),
+            Layout(name="online", size=_PANEL_H["online"]),
+            Layout(name="pipeline"),
         )
         layout["center"].split_column(
             Layout(name="conversation", size=_PANEL_H["conversation"]),
@@ -705,6 +871,7 @@ class Interface:
         )
         layout["right"].split_column(
             Layout(name="zeitgeist", size=_PANEL_H["zeitgeist"]),
+            Layout(name="thoughts", size=_PANEL_H["thoughts"]),
             Layout(name="memory_tree", size=_PANEL_H["memory_tree"]),
             Layout(name="memories"),
         )
@@ -718,7 +885,9 @@ class Interface:
                     layout["conversation"].update(self._render_conversation())
                     layout["trace"].update(self._render_log())
                     layout["online"].update(self._render_online())
+                    layout["pipeline"].update(self._render_pipeline())
                     layout["zeitgeist"].update(self._render_zeitgeist())
+                    layout["thoughts"].update(self._render_thoughts())
                     layout["memory_tree"].update(self._render_memory_tree())
                     layout["memories"].update(self._render_memories())
                 except Exception as e:

@@ -1,5 +1,8 @@
 import asyncio
+import json
 import time
+
+import aiohttp
 from aiohttp import web
 import socketio
 
@@ -14,6 +17,7 @@ class SocketIOServer:
         self.llmWrapper = llmWrapper
         self.prompter = prompter
         self.modules = modules
+        self._ws_clients = set()
 
     def start_server(self):
         print("Starting Socket.io server")
@@ -216,6 +220,111 @@ class SocketIOServer:
         def disconnect(sid):
             print('Client disconnected')
 
+        def _build_state_snapshot():
+            s = self.signals
+            disc_connected = bool(s.discord_vc and s.discord_vc.is_connected())
+            disc_members = []
+            if disc_connected:
+                disc_members = [
+                    {"name": m.display_name, "id": m.id}
+                    for m in s.discord_vc.channel.members if not m.bot
+                ]
+
+            history_tail = []
+            for msg in s.history[-30:]:
+                history_tail.append({
+                    "role": msg.get("role", ""),
+                    "content": msg.get("content", ""),
+                    "timestamp": msg.get("timestamp", 0),
+                })
+
+            memories_summary = []
+            for mem in s.all_memories:
+                meta = mem.get("metadata", {})
+                memories_summary.append({
+                    "id": mem.get("id", ""),
+                    "document": mem.get("document", ""),
+                    "type": meta.get("type", ""),
+                    "related_user": meta.get("related_user", ""),
+                    "keywords": meta.get("keywords", ""),
+                    "title": meta.get("title", ""),
+                })
+
+            return {
+                "timestamp": time.time(),
+                "pipeline": {
+                    "human_speaking": s.human_speaking,
+                    "AI_thinking": s.AI_thinking,
+                    "AI_speaking": s.AI_speaking,
+                    "new_message": s.new_message,
+                    "audio_mode": s.audio_mode,
+                    "active_voice_user": s.active_voice_user,
+                },
+                "readiness": {
+                    "stt_ready": s.stt_ready,
+                    "tts_ready": s.tts_ready,
+                    "tts_engine": s.tts_engine,
+                },
+                "timing": {
+                    "last_message_time": s.last_message_time,
+                    "patience": s.patience,
+                    "seconds_since_last": round(time.time() - s.last_message_time, 1) if s.last_message_time else 0,
+                },
+                "discord": {
+                    "connected": disc_connected,
+                    "members": disc_members,
+                },
+                "history": history_tail,
+                "chat_queues": {
+                    "twitch": len(s.recentTwitchMessages),
+                    "discord": len(s.recentDiscordMessages),
+                },
+                "extractor_signals": {
+                    k: v if isinstance(v, (list, str, int, float, bool)) else str(v)
+                    for k, v in s.extractor_signals.items()
+                },
+                "zeitgeist": s.zeitgeist,
+                "memories": {
+                    "total": len(s.all_memories),
+                    "recalled": s.last_recalled,
+                    "forced_ids": list(s.forced_memory_ids),
+                    "recent_generated": s.recent_memories[-10:],
+                    "all": memories_summary,
+                },
+                "stt_workers": s.stt_workers,
+                "recent_thoughts": s.recent_thoughts[-10:],
+            }
+
+        async def ws_handler(request):
+            ws = aiohttp.web.WebSocketResponse()
+            await ws.prepare(request)
+            self._ws_clients.add(ws)
+            try:
+                async for msg in ws:
+                    pass  # read loop keeps connection alive
+            finally:
+                self._ws_clients.discard(ws)
+            return ws
+
+        app.router.add_get("/ws/state", ws_handler)
+
+        async def broadcast_state():
+            while not self.signals.terminate:
+                if self._ws_clients:
+                    try:
+                        snapshot = json.dumps(_build_state_snapshot())
+                    except Exception:
+                        await asyncio.sleep(0.25)
+                        continue
+                    dead = set()
+                    for ws in self._ws_clients:
+                        try:
+                            await ws.send_str(snapshot)
+                        except Exception:
+                            dead.add(ws)
+                    self._ws_clients -= dead
+                await asyncio.sleep(0.25)
+
         async def send_messages():
             while not self.signals.terminate:
                 while not self.signals.sio_queue.empty():
@@ -225,11 +334,13 @@ class SocketIOServer:
 
         async def run():
             sio.start_background_task(send_messages)
+            sio.start_background_task(broadcast_state)
             runner = web.AppRunner(app)
             await runner.setup()
-            site = web.TCPSite(runner, 'localhost', 8080)
+            site = web.TCPSite(runner, 'localhost', 1979)
             await site.start()
-            print("Socket.io server started on port 8080")
+            print("Socket.io server started on port 1979")
+            print("WebSocket state feed available at ws://localhost:1979/ws/state")
             while not self.signals.terminate:
                 await asyncio.sleep(0.1)
             await runner.cleanup()

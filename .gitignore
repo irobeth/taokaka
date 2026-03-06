@@ -41,6 +41,9 @@ models/
 *.swo
 *~
 
+# Node / Frontend
+node_modules/
+
 # OS
 .DS_Store
 Thumbs.db

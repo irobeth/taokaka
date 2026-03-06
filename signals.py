@@ -26,6 +26,8 @@ class Signals:
         self.last_full_prompt = ""      # last assembled prompt sent to LLM
         self.stt_workers = []           # list of {"name": str, "status": "idle"|"speaking"|"transcribing"}
         self._audio_mode = "local"      # "local" or "discord"
+        self.extractor_signals = {}     # shared dict for extractor→injector data
+        self.recent_thoughts = []       # list of {"thought": str, "timestamp": float}
 
         # This flag indicates to all threads that they should immediately terminate
         self._terminate = False

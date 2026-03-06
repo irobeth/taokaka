@@ -134,22 +134,35 @@ class AbstractLLMWrapper:
             AI_message = AI_message.rsplit(ai_prefix, 1)[-1].strip()
             self._trace(f"stripped echo prefix → {len(AI_message)} chars remaining")
 
+        # Separate thinking from spoken response
+        thinking_text = ""
+        spoken_message = AI_message
+        if "</think>" in AI_message:
+            parts = AI_message.split("</think>", 1)
+            thinking_text = parts[0].replace("<think>", "").strip()
+            spoken_message = parts[1].strip()
+
+        if thinking_text:
+            self.signals.recent_thoughts = (
+                self.signals.recent_thoughts + [{"thought": thinking_text, "timestamp": time.time()}]
+            )[-20:]
+
         if self.interface:
-            self.interface.log(AI_message, source="AI")
+            self.interface.log(spoken_message, source="AI")
         else:
-            print("AI OUTPUT: " + AI_message)
+            print("AI OUTPUT: " + spoken_message)
         self.signals.last_message_time = time.time()
         self.signals.AI_speaking = True
         self.signals.AI_thinking = False
 
-        if self.is_filtered(AI_message):
-            AI_message = "Filtered."
+        if self.is_filtered(spoken_message):
+            spoken_message = "Filtered."
             self.signals.sio_queue.put(("reset_next_message", None))
             self.signals.sio_queue.put(("next_chunk", "Filtered."))
 
-        self.signals.history.append({"role": "assistant", "content": AI_message, "timestamp": time.time()})
+        self.signals.history.append({"role": "assistant", "content": spoken_message, "timestamp": time.time()})
 
-        tts_message = AI_message
+        tts_message = spoken_message
         for comp in self.comprehensions:
             tts_message = comp.process(tts_message)
             if not tts_message:

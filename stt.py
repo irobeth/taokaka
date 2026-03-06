@@ -10,7 +10,7 @@ class STT:
         self.signals = signals
         self.interface = interface
         self.API = self.API(self)
-        self.enabled = True
+        self.enabled = False
         self._recording_start_time = None
 
     def process_text(self, text, speaker=None, source="local"):

@@ -1,0 +1,172 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  background: #0a0a0f;
+  color: #c8c8d0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: 240px 1fr 320px;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 8px;
+  height: 100vh;
+}
+
+.header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #12121a;
+  border: 1px solid #2a2a3a;
+  border-radius: 6px;
+}
+
+.header h1 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 2px;
+}
+
+.header .indicators {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.left-col, .center-col, .right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.panel {
+  background: #12121a;
+  border: 1px solid #2a2a3a;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel.active { border-color: #00bcd4; }
+
+.panel-title {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #888;
+  border-bottom: 1px solid #1a1a2a;
+  flex-shrink: 0;
+}
+
+.panel-body {
+  padding: 8px 12px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Status dots */
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.dot.on { background: #4caf50; box-shadow: 0 0 6px #4caf5088; }
+.dot.off { background: #333; }
+.dot.warn { background: #ff9800; box-shadow: 0 0 6px #ff980088; }
+
+/* Signal rows */
+.signal-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid #1a1a2a;
+}
+.signal-row:last-child { border-bottom: none; }
+.signal-label { color: #888; }
+.signal-value { font-weight: 600; }
+.signal-value.active { color: #4caf50; }
+.signal-value.inactive { color: #555; }
+
+/* Chat messages */
+.msg { padding: 3px 0; border-bottom: 1px solid #0e0e16; }
+.msg:last-child { border-bottom: none; }
+.msg .role { font-weight: 700; margin-right: 6px; }
+.msg .role.user { color: #00bcd4; }
+.msg .role.assistant { color: #ce93d8; }
+.msg .content { color: #aaa; }
+.msg .ts { color: #555; font-size: 11px; margin-right: 8px; }
+
+/* Keywords */
+.keyword-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.keyword {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #7c9cff;
+}
+
+/* Memory items */
+.memory-item {
+  padding: 4px 0;
+  border-bottom: 1px solid #1a1a2a;
+}
+.memory-item:last-child { border-bottom: none; }
+.memory-meta {
+  font-size: 11px;
+  color: #666;
+  display: flex;
+  gap: 8px;
+}
+.memory-meta .type { color: #ff9800; }
+.memory-meta .user { color: #00bcd4; }
+.memory-doc { color: #aaa; margin-top: 2px; }
+.memory-title { color: #ddd; font-weight: 600; }
+
+/* Zeitgeist */
+.zeitgeist-text {
+  color: #999;
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+/* Connection status */
+.connection {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.connection.connected { color: #4caf50; }
+.connection.disconnected { color: #f44336; }
+
+/* Discord members */
+.member {
+  padding: 2px 0;
+  color: #00bcd4;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #0a0a0f; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }

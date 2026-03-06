@@ -66,6 +66,13 @@ class MemoryInjector(Module):
             query += text + "\n"
         query += "[/Conversation]\n"
 
+        # Enrich query with keywords from extractors (zeitgeist + conversation)
+        keywords = self.signals.extractor_signals.get("keywords", [])
+        conv_keywords = self.signals.extractor_signals.get("conversation_keywords", [])
+        all_keywords = list(dict.fromkeys(keywords + conv_keywords))  # dedupe, preserve order
+        if all_keywords:
+            query += "[Keywords] " + ", ".join(all_keywords[:15]) + " [/Keywords]\n"
+
         memories = self.collection.query(query_texts=query, n_results=MEMORY_RECALL_COUNT)
 
         recalled = [memories['documents'][0][i] for i in range(len(memories["ids"][0]))]
