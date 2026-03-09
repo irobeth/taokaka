@@ -1,0 +1,16 @@
+
+Given only the information above, what are 3 most salient high level questions we can answer about the subjects in the conversation?
+For each question-answer pair, first output a metadata line, then the Q&A on the next line.
+Metadata format: type:<TYPE>|user:<USERNAME_OR_personal>|keywords:<COMMA_SEPARATED_KEYWORDS>|title:<3_WORD_TITLE>
+Valid types: core, personal, about_user, opinion, long_term, short_term
+A core memory is something formative to your personality
+A personal memory is something formative to your opinions on some subject
+An about_user memory could be facts about what recent users were talking about, or something someone says they like or dislike
+An opinion memory is a temporary opinion, like a short-term memory, but specifically something you've decided about a recent topic
+For 'user', use the username the memory relates to, or 'personal' if it is about the AI itself.
+For 'title', write a 3-word-max distilled label for the memory (e.g. 'Likes Python', 'Hates Mornings').
+Separate each entry with "{qa}".
+Example:
+{qa}type:about_user|user:irobeth|keywords:programming,python|title:Likes Python
+Q: What does irobeth enjoy? A: irobeth enjoys programming in Python.
+Output only the metadata and Q&A pairs, no other text.

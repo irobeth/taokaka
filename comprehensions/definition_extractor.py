@@ -5,17 +5,13 @@ from datetime import datetime, timedelta
 import requests
 
 from constants import BANNED_TOKENS, LLM_ENDPOINT
+from prompts import load_prompt, strip_think
 from modules.module import Module
 
 _INTERVAL = 30          # seconds between checks
 _DEFINITION_TTL_DAYS = 7  # definitions older than this get expired and re-evaluated
 
-_DEFINE_PROMPT = (
-    "Define the following word or concept in one sentence, 50 words max. "
-    "Be concise and practical — what is it, and why might someone bring it up in conversation?\n\n"
-    "Word: {word}\n\n"
-    "Definition:"
-)
+_DEFINE_PROMPT = load_prompt("definition")
 
 
 class DefinitionExtractor(Module):
@@ -81,7 +77,7 @@ class DefinitionExtractor(Module):
                 headers={"Content-Type": "application/json"},
                 json=data, verify=False, timeout=15,
             )
-            definition = resp.json()["choices"][0]["message"]["content"].strip()
+            definition = strip_think(resp.json()["choices"][0]["message"]["content"]).strip()
             # Clean up — some models repeat the word or add quotes
             definition = definition.lstrip(":").strip().strip('"').strip()
             return definition if definition else None

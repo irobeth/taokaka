@@ -40,7 +40,7 @@ class CuriosityExtractor(Module):
                 out += AI_NAME + ": " + msg["content"] + "\n"
         return out
 
-    def _llm_call(self, prompt, max_tokens=400):
+    def _llm_call(self, prompt, max_tokens=2000):
         data = {
             "mode": "instruct",
             "max_tokens": max_tokens,
@@ -53,7 +53,10 @@ class CuriosityExtractor(Module):
             headers={"Content-Type": "application/json"},
             json=data, verify=False, timeout=30,
         )
-        return resp.json()["choices"][0]["message"]["content"]
+        raw = resp.json()["choices"][0]["message"]["content"]
+        # Strip <think> blocks from LLM output before parsing
+        from prompts import strip_think
+        return strip_think(raw)
 
     def _parse_block(self, block):
         lines = block.strip().split("\n")
@@ -119,7 +122,7 @@ class CuriosityExtractor(Module):
         collection = self.memory_injector.collection
         new = []
         for block in raw.split("{qa}"):
-            block = block.strip()
+            block = block.replace("{/qa}", "").strip()
             if not block:
                 continue
             doc, meta = self._parse_block(block)
@@ -166,7 +169,7 @@ class CuriosityExtractor(Module):
         raw = self._llm_call(prompt, max_tokens=600)
 
         collection = self.memory_injector.collection
-        responses = [r.strip() for r in raw.split("{qa}") if r.strip()]
+        responses = [r.replace("{/qa}", "").strip() for r in raw.split("{qa}") if r.strip()]
 
         for i, response in enumerate(responses):
             if i >= len(existing["ids"]):

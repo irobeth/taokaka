@@ -22,11 +22,10 @@ class TwitchClient(Module):
 
     def get_prompt_injection(self):
         if len(self.signals.recentTwitchMessages) > 0:
-            output = "\nThese are recent twitch messages:\n"
+            output = "<TWITCH>\nRecent Twitch messages:\n"
             for message in self.signals.recentTwitchMessages:
                 output += message["text"] + "\n"
-
-            output += "Pick the highest quality message with the most potential for an interesting answer and respond to them.\n"
+            output += "Pick the highest quality message with the most potential for an interesting answer and respond to them.\n</TWITCH>\n"
             self.prompt_injection.text = output
         else:
             self.prompt_injection.text = ""

@@ -4,24 +4,14 @@ import time
 import requests
 
 from constants import AI_NAME, BANNED_TOKENS, LLM_ENDPOINT
+from prompts import load_prompt, strip_think
 from modules.module import Module
 from stopwords import extract_keywords
 
 _MIN_MESSAGES = 10
 _INTERVAL = 60
 
-_PROMPT = (
-    "Given this chat transcript, identify the topic at hand; produce a summary of the "
-    "users in the transcript and their perspectives on the topic, include a short "
-    "summary of the discussion (no more than 3 or 4 sentences).\n\n"
-    "After the summary, on a new line starting with 'KEYWORDS:', list 5-10 single-word "
-    "keywords that capture the most relevant topics, entities, and themes from this "
-    "conversation. Separate keywords with commas.\n\n"
-    "Then, on a new line starting with 'ATTRIBUTIONS:', list which user introduced or "
-    "discussed each keyword, in the format user>keyword, separated by commas. "
-    "Only include attributions where a specific user clearly brought up or drove that topic. "
-    "Example: ATTRIBUTIONS: irobeth>rust, chakrila>streaming, irobeth>performance"
-)
+_PROMPT = load_prompt("zeitgeist")
 
 
 class ZeitgeistExtractor(Module):
@@ -90,7 +80,7 @@ class ZeitgeistExtractor(Module):
                 verify=False,
                 timeout=30,
             )
-            raw = response.json()["choices"][0]["message"]["content"].strip()
+            raw = strip_think(response.json()["choices"][0]["message"]["content"]).strip()
 
             # Parse structured lines from the LLM output
             summary_lines = []

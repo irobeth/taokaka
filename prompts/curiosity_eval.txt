@@ -1,0 +1,15 @@
+
+You are reviewing your own earlier curiosities against what has happened in conversation since.
+For each curiosity below, decide: was it addressed or answered in the conversation? If YES, write a concise summary of the answer as a long-term memory. If NO, write KEEP if it's still interesting, or DROP if it's no longer relevant.
+
+Curiosities:
+{curiosities}
+
+Recent conversation:
+{conversation}
+
+For each curiosity, respond with one line in this format:
+ANSWERED: <memory text to save as long_term> — include metadata: type:long_term|user:<USER>|keywords:<KW>|title:<TITLE>
+or: KEEP
+or: DROP
+Separate each response with "{qa}". Respond in the same order as the curiosities above.

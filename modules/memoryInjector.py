@@ -91,14 +91,14 @@ class MemoryInjector(Module):
         self.signals.last_recalled = recalled
 
         # Generate injection for LLM prompt
-        self.prompt_injection.text = f"[Memories]\n {AI_NAME} knows these things:\n"
+        self.prompt_injection.text = f"<MEMORIES>\n{AI_NAME} knows these things:\n"
         for doc in recalled:
             self.prompt_injection.text += doc + "\n"
         if forced_docs:
             self.prompt_injection.text += f"{AI_NAME} is specifically focused on:\n"
             for doc in forced_docs:
                 self.prompt_injection.text += doc + "\n"
-        self.prompt_injection.text += "[/Memories]\n"
+        self.prompt_injection.text += "</MEMORIES>\n"
 
         return self.prompt_injection
 

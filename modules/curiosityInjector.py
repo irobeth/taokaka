@@ -13,13 +13,13 @@ class CuriosityInjector(Module):
     def get_prompt_injection(self):
         curiosities = self.signals.extractor_signals.get("curiosities", [])
         if curiosities:
-            text = f"[Curiosities]\n{AI_NAME} is currently curious about:\n"
+            text = f"<CURIOSITIES>\n{AI_NAME} is currently curious about:\n"
             for c in curiosities[:5]:  # cap at 5 to avoid bloating the prompt
                 text += f"- {c}\n"
             text += (
                 f"If relevant, {AI_NAME} might naturally bring up or follow up on these interests. "
                 f"Don't force it — only if it fits the flow.\n"
-                f"[/Curiosities]\n"
+                f"</CURIOSITIES>\n"
             )
             self.prompt_injection.text = text
         else:

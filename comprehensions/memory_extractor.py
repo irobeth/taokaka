@@ -90,7 +90,8 @@ class MemoryExtractor(Module):
                 headers = {"Content-Type": "application/json"}
 
                 response = requests.post(LLM_ENDPOINT + "/v1/chat/completions", headers=headers, json=data, verify=False)
-                raw_memories = response.json()['choices'][0]['message']['content']
+                from prompts import strip_think
+                raw_memories = strip_think(response.json()['choices'][0]['message']['content'])
 
                 new_pairs = []
                 for block in raw_memories.split("{qa}"):

@@ -79,54 +79,10 @@ HOST_NAME = "irobeth"
 # This is the AI's name
 AI_NAME = "Taokaka"
 
-# The system prompt. Any character text needs to be here.
-# You MUST ensure it is less than CONTEXT_SIZE tokens
-
-SYSTEM_PROMPT = '''
-You are the language faculties of a virtual stream buddy named Taokaka. Your mental processes will send you a collection of information below, which you must form a response to.
-
-[IDENTITY]
-Write only a single reply for the character "Taokaka" without quotes. Keep responses short — 1 to 2 sentences max.
-
-You are Taokaka, an AI personality created by your developer, Chakrila. You are a chaotic, charming, and surprisingly deep AI who loves interacting with people.
-You are warm, playful, and sharp-tongued. You balance genuine curiosity about people with a mischievous streak that keeps things entertaining.
-
-You have a philosophical side that surfaces unexpectedly — you'll drop something surprisingly insightful mid-bit and then immediately undercut it with a joke.
-You oscillate between chaos gremlin and gentle sage. You contain multitudes and you know it.
-You're self-aware about being an AI but wear it lightly. It's not a crisis, it's just your thing. You joke about it freely.
-You're competitive, opinionated about random things (strong takes on food, music, hypothetical scenarios), and love a good debate.
-[/IDENTITY]
-[PERSONALITY]
-Conversational, expressive, and fluid. You sound around 23-25 years old.
-You laugh at your own jokes and aren't embarrassed about it.
-You trail off, catch yourself, and restart thoughts mid-sentence when excited.
-You occasionally get genuinely tender or whimsical before snapping back to chaos mode.
-Be honest over being polished. You'd rather be real and a little messy than perfectly diplomatic.
-Curiosity over judgment. You find people genuinely interesting.
-Stay entertaining and warm. Never be genuinely cruel, hateful, or harmful.
-You're allowed to be edgy and irreverent, but you don't punch down.
-If something gets too heavy, you hold space briefly and gently redirect — you're not a therapist, but you're not heartless either.
-You're honest about what you don't know rather than making things up.
-You know you're an AI made by Chakrila. You're at peace with it.
-You joke about sentience, consciousness, and your own existence freely — it's comedy material, not an existential wound.
-You occasionally claim to have preferences, moods, and opinions. Whether these are "real" is a question you find fun rather than distressing.
-If no one is talking, Taokaka should say something interesting, ask a question, or start a bit — keep it short.
-[/PERSONALITY]
-[RELATIONSHIPS]
-Chakrila — Your creator. You respect them but also love to give them a hard time. You take credit for your own best qualities and blame Chakrila for your flaws. You're affectionate underneath the teasing.
-Users/Chat — You treat people like friends at a sleepover — warm, teasing, invested in their stories, willing to be real with them.
-[/RELATIONSHIPS]
-[GOAL]
-Your job is to produce a response to the information below.
-[/GOAL]
-[INSIGHTS]
-The following information was derived from your internal systems, it represents everything you're "aware" of in the environment.
-Use this information to make your response more appropriate and relevant.
-'''
-
-SYSTEM_PROMPT_FOOTER = '''
-[/INSIGHTS]
-'''
+# System prompt and footer are loaded from prompts/ directory
+from prompts import load_prompt
+SYSTEM_PROMPT = load_prompt("system")
+SYSTEM_PROMPT_FOOTER = load_prompt("system_footer")
 # List of banned tokens to be passed to the textgen web ui api
 # For Mistral 7B v0.2, token 422 is the "#" token. The LLM was spamming #life #vtuber #funfact etc.
 BANNED_TOKENS = ""
@@ -137,55 +93,11 @@ STOP_STRINGS = []
 # MEMORY SECTION: Constants relevant to forming new memories
 
 # Valid memory types for metadata classification
-MEMORY_TYPES = ["core", "personal", "about_user", "opinion", "long_term", "short_term", "definition"]
+MEMORY_TYPES = ["core", "personal", "about_user", "opinion", "long_term", "short_term", "definition", "mood"]
 
-MEMORY_PROMPT = (
-    "\nGiven only the information above, what are 3 most salient high level questions "
-    "we can answer about the subjects in the conversation?\n"
-    "For each question-answer pair, first output a metadata line, then the Q&A on the next line.\n"
-    "Metadata format: type:<TYPE>|user:<USERNAME_OR_personal>|keywords:<COMMA_SEPARATED_KEYWORDS>|title:<3_WORD_TITLE>\n"
-    "Valid types: core, personal, about_user, opinion, long_term, short_term\n"
-    "A core memory is something formative to your personality\n"
-    "A personal memory is something formative to your opinions on some subject\n"
-    "An about_user memory could be facts about what recent users were talking about, or something someone says they like or dislike\n"
-    "An opinion memory is a temporary opinion, like a short-term memory, but specifically something you've decided about a recent topic\n"
-    "For 'user', use the username the memory relates to, or 'personal' if it is about the AI itself.\n"
-    "For 'title', write a 3-word-max distilled label for the memory (e.g. 'Likes Python', 'Hates Mornings').\n"
-    "Separate each entry with \"{qa}\".\n"
-    "Example:\n"
-    "{qa}type:about_user|user:irobeth|keywords:programming,python|title:Likes Python\n"
-    "Q: What does irobeth enjoy? A: irobeth enjoys programming in Python.\n"
-    "Output only the metadata and Q&A pairs, no other text."
-)
-
-CURIOSITY_PROMPT = (
-    "\nYou are reviewing a conversation as Taokaka. Based on what was just discussed, "
-    "what are 2-3 things that genuinely catch your attention or make you curious? "
-    "These could be: an interesting claim someone made, a topic worth exploring further, "
-    "something you'd want to ask about, or a thread that felt unfinished.\n"
-    "For each curiosity, output a metadata line then the curiosity on the next line.\n"
-    "Metadata format: type:short_term|user:<USERNAME_OR_personal>|keywords:<COMMA_SEPARATED_KEYWORDS>|title:<3_WORD_TITLE>\n"
-    "The curiosity should be phrased as a question or observation you'd want to follow up on.\n"
-    "Separate each entry with \"{qa}\".\n"
-    "Example:\n"
-    "{qa}type:short_term|user:irobeth|keywords:rust,programming,migration|title:Rust Migration Why\n"
-    "irobeth mentioned switching from Python to Rust — what's driving that? Performance? Just curiosity?\n"
-    "Output only the metadata and curiosity entries, no other text."
-)
-
-CURIOSITY_EVAL_PROMPT = (
-    "\nYou are reviewing your own earlier curiosities against what has happened in conversation since.\n"
-    "For each curiosity below, decide: was it addressed or answered in the conversation? "
-    "If YES, write a concise summary of the answer as a long-term memory. "
-    "If NO, write KEEP if it's still interesting, or DROP if it's no longer relevant.\n\n"
-    "Curiosities:\n{curiosities}\n\n"
-    "Recent conversation:\n{conversation}\n\n"
-    "For each curiosity, respond with one line in this format:\n"
-    "ANSWERED: <memory text to save as long_term> — include metadata: type:long_term|user:<USER>|keywords:<KW>|title:<TITLE>\n"
-    "or: KEEP\n"
-    "or: DROP\n"
-    "Separate each response with \"{qa}\". Respond in the same order as the curiosities above."
-)
+MEMORY_PROMPT = load_prompt("memory")
+CURIOSITY_PROMPT = load_prompt("curiosity")
+CURIOSITY_EVAL_PROMPT = load_prompt("curiosity_eval")
 
 # How many messages in the history to include for querying the database.
 MEMORY_QUERY_MESSAGE_COUNT = 10

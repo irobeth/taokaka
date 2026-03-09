@@ -15,7 +15,7 @@ class ZeitgeistInjector(Module):
     def get_prompt_injection(self):
         if self._summary:
             self.prompt_injection.text = (
-                f"\nCurrent conversation context (zeitgeist):\n{self._summary}\n"
+                f"<ZEITGEIST>\n{self._summary}\n</ZEITGEIST>\n"
             )
         else:
             self.prompt_injection.text = ""

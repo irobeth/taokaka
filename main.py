@@ -32,6 +32,8 @@ from comprehensions.zeitgeist_extractor import ZeitgeistExtractor
 from comprehensions.keyword_extractor import KeywordExtractor
 from comprehensions.curiosity_extractor import CuriosityExtractor
 from comprehensions.definition_extractor import DefinitionExtractor
+from comprehensions.mood_extractor import MoodExtractor
+from modules.moodInjector import MoodInjector
 from socketioServer import SocketIOServer
 
 
@@ -120,6 +122,10 @@ async def main():
 
     # Create Definition extractor (defines unknown keywords, links users to topics)
     modules['definition_extractor'] = DefinitionExtractor(signals, modules['memory'], interface, enabled=True)
+
+    # Create Mood injector + extractor
+    modules['mood'] = MoodInjector(signals, enabled=True)
+    modules['mood_extractor'] = MoodExtractor(signals, modules['memory'], interface, enabled=True)
 
     # Create Socket.io server
     # The specific llmWrapper it gets doesn't matter since state is shared between all llmWrappers

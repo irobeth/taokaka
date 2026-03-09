@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.0 — 2026-03-09
+
+### New Features
+- **Mood system** — 3D emotional state using Plutchik's emotion wheel
+  - Three axes: emotion (8 primary emotions), intensity (0–1), inertia (resistance to change, 0–1)
+  - Global mood evaluates after each prompt cycle via LLM
+  - Per-subject moods (users, topics, keywords) stored in ChromaDB as `mood` type memories
+  - Inertia-weighted blending: moods transition smoothly using cartesian vector math on the emotion wheel
+  - MoodInjector (priority 158) injects current feelings + notable subject moods into prompt
+- **Prompts directory** — all LLM prompts moved from inline Python strings to editable `prompts/*.txt` files
+  - `prompts/__init__.py` provides `load_prompt(name)` and `strip_think(text)` utilities
+  - System, memory, curiosity, curiosity_eval, zeitgeist, definition, mood prompts
+
+### Changes
+- **XML injection tags** — all prompt injections now use `<XML>` tags instead of `[Bracket]` style
+  - `<SYSTEM>`, `<CONTEXT>`, `<MEMORIES>`, `<CURIOSITIES>`, `<ZEITGEIST>`, `<MOOD>`, `<DISCORD>`, `<TWITCH>`
+- **Think-block stripping** — all extractors that call the LLM directly now strip `<think>` blocks before parsing
+  - Fixed: curiosity, memory, zeitgeist, and definition extractors
+- **Curiosity parser** — updated to handle `{qa}...{/qa}` block delimiters
+- **System prompt rewrite** — new Taokaka character prompt (BlazBlue catgirl personality)
+- **Memory types** expanded: added `mood`
+
 ## 0.1.9 — 2026-03-05
 
 ### New Features

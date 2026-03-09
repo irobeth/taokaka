@@ -1,0 +1,30 @@
+You are evaluating Taokaka's emotional state after a conversation exchange.
+
+Taokaka's mood is tracked on three axes:
+- **Emotion** (angle on Plutchik's wheel): joy, trust, fear, surprise, sadness, disgust, anger, anticipation
+- **Intensity** (0.0 to 1.0): how strongly she feels it. 0.0 = barely there, 1.0 = overwhelming
+- **Inertia** (0.0 to 1.0): how resistant this mood is to change. 0.0 = volatile/fleeting, 1.0 = deeply entrenched
+
+Taokaka's previous overall mood: {old_mood}
+
+Here is what just happened in conversation:
+{recent_exchange}
+
+First, evaluate Taokaka's OVERALL mood. Then, identify any specific topics, people, or ideas she might have feelings about individually.
+
+Respond in EXACTLY this format (no other text):
+
+OVERALL:
+EMOTION: <one of: joy, trust, fear, surprise, sadness, disgust, anger, anticipation>
+INTENSITY: <0.0 to 1.0>
+INERTIA: <0.0 to 1.0>
+SUMMARY: <one sentence describing current feeling>
+SHIFT: <one sentence about what might change her mood>
+
+Then for each specific subject she has feelings about (users, topics, keywords, ideas), add a SUBJECT block. Only include subjects with notable emotional charge. Skip this section entirely if nothing stands out.
+
+SUBJECT: <name of person, topic, or keyword>
+EMOTION: <one of the 8 emotions>
+INTENSITY: <0.0 to 1.0>
+INERTIA: <0.0 to 1.0>
+REASON: <why she feels this way about this subject, one sentence>

@@ -28,7 +28,7 @@ Audio In → STT (whisper turbo) → process_text (gated by mode)
                                         ↓
                                     Prompter (attention span timer / new message trigger)
                                         ↓
-                          Prompt Injections (Memory, Zeitgeist, Curiosity, CustomPrompt)
+                          Prompt Injections (Memory, Zeitgeist, Mood, Curiosity, CustomPrompt)
                                         ↓
                               LLM (LM Studio, instruct mode)
                                         ↓
@@ -38,7 +38,7 @@ Audio In → STT (whisper turbo) → process_text (gated by mode)
                                         ↓
                               TTS (Kokoro / F5-TTS) → Audio Out
                                         ↓
-                    Background Extractors (curiosity, memory, zeitgeist, keywords, definitions)
+                    Background Extractors (mood, curiosity, memory, zeitgeist, keywords, definitions)
                                         ↓
                               extractor_signals → fed back into next prompt cycle
 ```
@@ -52,6 +52,7 @@ Modules inject context into the system prompt before it reaches the LLM, sorted 
 - **CustomPrompt** — Static prompt injection for additional context.
 - **Discord** — Recent text channel messages.
 - **ZeitgeistInjector** (155) — Rolling conversation summary with topic/mood context.
+- **MoodInjector** (158) — Tao's current emotional state (overall mood + per-subject feelings).
 
 ### Response comprehensions (post-LLM, pre-TTS)
 
@@ -68,6 +69,7 @@ These run in their own threads on independent schedules, publishing to `signals.
 - **ZeitgeistExtractor** — Periodically summarizes conversation, extracts keywords, and attributes keywords to users who brought them up.
 - **KeywordExtractor** — Lightweight (no LLM), scans recent conversation for high-frequency non-stopword terms every 15s.
 - **DefinitionExtractor** — When zeitgeist produces unknown keywords, asks the LLM for a one-sentence definition and stores it. Definitions expire after 7 days and get refreshed. Also creates `about_user` memories linking users to topics they discussed.
+- **MoodExtractor** — After each prompt cycle, evaluates Tao's emotional state on Plutchik's wheel (3D: emotion, intensity, inertia). Tracks both global mood and per-subject feelings (users, topics, keywords) stored in ChromaDB.
 
 ### Memory types
 
@@ -78,6 +80,7 @@ These run in their own threads on independent schedules, publishing to `signals.
 | `about_user` | Facts about users, what they like/dislike, topics they discussed |
 | `opinion` | Temporary opinion about a recent topic |
 | `definition` | LLM-generated definition of a keyword (7-day TTL) |
+| `mood` | Per-subject emotional state (emotion, intensity, inertia) |
 | `long_term` | Promoted from short-term or resolved curiosities |
 | `short_term` | Recent observations, active curiosities |
 

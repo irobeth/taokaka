@@ -4,6 +4,7 @@ import time
 import requests
 
 from constants import AI_NAME, BANNED_TOKENS, LLM_ENDPOINT
+from prompts import strip_think
 from modules.module import Module
 
 _MIN_MESSAGES = 10        # don't attempt until at least this many history entries
@@ -31,7 +32,7 @@ class Zeitgeist(Module):
     def get_prompt_injection(self):
         if self._summary:
             self.prompt_injection.text = (
-                f"\nCurrent conversation context (zeitgeist):\n{self._summary}\n"
+                f"<ZEITGEIST>\n{self._summary}\n</ZEITGEIST>\n"
             )
         else:
             self.prompt_injection.text = ""
@@ -94,7 +95,7 @@ class Zeitgeist(Module):
                 verify=False,
                 timeout=30,
             )
-            summary = response.json()["choices"][0]["message"]["content"].strip()
+            summary = strip_think(response.json()["choices"][0]["message"]["content"]).strip()
             self._summary = summary
             self.signals.zeitgeist = summary
             self._last_summary_time = time.time()

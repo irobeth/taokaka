@@ -1,0 +1,5 @@
+Define the following word or concept in one sentence, 50 words max. Be concise and practical — what is it, and why might someone bring it up in conversation?
+
+Word: {word}
+
+Definition:

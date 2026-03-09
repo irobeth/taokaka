@@ -26,10 +26,10 @@ class DiscordClient(Module):
 
     def get_prompt_injection(self):
         if len(self.signals.recentDiscordMessages) > 0:
-            output = "\nThese are recent Discord messages:\n"
+            output = "<DISCORD>\nRecent Discord messages:\n"
             for message in self.signals.recentDiscordMessages:
                 output += message["text"] + "\n"
-            output += "Pick the highest quality message with the most potential for an interesting answer and respond to them.\n"
+            output += "Pick the highest quality message with the most potential for an interesting answer and respond to them.\n</DISCORD>\n"
             self.prompt_injection.text = output
         else:
             self.prompt_injection.text = ""
