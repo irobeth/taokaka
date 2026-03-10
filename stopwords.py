@@ -24,6 +24,8 @@ STOPWORDS = frozenset({
     "where's", "which", "while", "who", "who's", "whom", "why", "why's",
     "will", "with", "won't", "would", "wouldn't", "you", "you'd", "you'll",
     "you're", "you've", "your", "yours", "yourself", "yourselves",
+    # Chat source labels / attribution noise
+    "user", "assistant", "system", "taokaka", "tao", "irobeth",
     # Filler / conversational noise
     "oh", "yeah", "yes", "no", "ok", "okay", "um", "uh", "ah", "hmm",
     "huh", "well", "hey", "hi", "hello", "bye", "thanks", "thank",
@@ -42,9 +44,17 @@ STOPWORDS = frozenset({
 })
 
 
+def strip_attributions(text):
+    """Remove 'Username: ' prefixes from chat lines so usernames don't become keywords."""
+    import re
+    # Matches lines starting with a display name followed by colon, e.g. "User: hello"
+    return re.sub(r"(?m)^\s*\S+:\s+", "", text)
+
+
 def extract_keywords(text, min_length=3):
     """Extract non-stopword tokens from text, lowercased and deduplicated."""
     import re
+    text = strip_attributions(text)
     tokens = re.findall(r"[a-zA-Z']+", text.lower())
     seen = set()
     keywords = []

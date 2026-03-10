@@ -17,6 +17,21 @@ Taokaka is a real-time conversational AI with voice input/output, long-term memo
 
 Press `` ` `` (backtick) to type a message directly to Tao. Press `Enter` to send, `Esc` to cancel. Works regardless of audio mode or STT state.
 
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `` ` `` | Enter typing mode |
+| `Tab` / `Shift+Tab` | Cycle dashboard panels |
+| `a` | Toggle audio mode (local/discord) |
+| `r` | Toggle raw trace output |
+| `F5` | Toggle local STT |
+| `F12` | Factory reset (wipe all memories, curiosities, mood) |
+| `←` / `→` | Page back/forward in active panel |
+| `↑` / `↓` | Navigate memory tree |
+| `Enter` | Toggle force-inject selected memory |
+| `Del` | Delete selected memory |
+
 ### Architecture overview
 
 Open `architecture.html` in a browser for an interactive D3 diagram of the full system. Here's the short version:
@@ -47,7 +62,7 @@ Audio In → STT (whisper turbo) → process_text (gated by mode)
 
 Modules inject context into the system prompt before it reaches the LLM, sorted by priority:
 
-- **MemoryInjector** (60) — Queries ChromaDB for relevant memories, enriched by zeitgeist keywords. Supports forced/pinned memories.
+- **MemoryInjector** (60) — Queries Elasticsearch for relevant memories via hybrid search, enriched by zeitgeist keywords. Supports forced/pinned memories.
 - **CuriosityInjector** (65) — Injects Tao's active curiosities so she can naturally follow up on things she finds interesting.
 - **CustomPrompt** — Static prompt injection for additional context.
 - **Discord** — Recent text channel messages.
@@ -65,11 +80,11 @@ After the LLM responds, thinking blocks are separated and stored in `signals.rec
 These run in their own threads on independent schedules, publishing to `signals.extractor_signals`:
 
 - **CuriosityExtractor** — After each prompt cycle, asks "what's interesting here?" and stores short-term curiosity memories. On patience expiry, evaluates curiosities: answered ones get promoted to long-term, stale ones get dropped.
-- **MemoryExtractor** — Every 20 new messages, reflects on the conversation and generates Q&A memory pairs via LLM, stored in ChromaDB.
+- **MemoryExtractor** — Every 20 new messages, reflects on the conversation and generates Q&A memory pairs via LLM, stored in Elasticsearch.
 - **ZeitgeistExtractor** — Periodically summarizes conversation, extracts keywords, and attributes keywords to users who brought them up.
 - **KeywordExtractor** — Lightweight (no LLM), scans recent conversation for high-frequency non-stopword terms every 15s.
 - **DefinitionExtractor** — When zeitgeist produces unknown keywords, asks the LLM for a one-sentence definition and stores it. Definitions expire after 7 days and get refreshed. Also creates `about_user` memories linking users to topics they discussed.
-- **MoodExtractor** — After each prompt cycle, evaluates Tao's emotional state on Plutchik's wheel (3D: emotion, intensity, inertia). Tracks both global mood and per-subject feelings (users, topics, keywords) stored in ChromaDB.
+- **MoodExtractor** — After each prompt cycle, evaluates Tao's emotional state on Plutchik's wheel (3D: emotion, intensity, inertia). Tracks both global mood and per-subject feelings (users, topics, keywords) stored in Elasticsearch.
 
 ### Memory types
 

@@ -80,7 +80,7 @@ async def main():
         "image": ImageLLMWrapper(signals, tts, llmState, modules, interface)
     }
     # Create Prompter
-    prompter = Prompter(signals, llms, modules, interface)
+    prompter = Prompter(signals, llms, modules, interface, tts=tts)
 
     # Create Discord bot
     modules['discord'] = DiscordClient(signals, stt, tts, interface, enabled=True)
@@ -104,6 +104,14 @@ async def main():
     modules['memory'] = MemoryInjector(signals, enabled=True)
     interface._delete_memory_fn = modules['memory'].API.delete_memory
     interface._stt = stt
+
+    def _factory_reset():
+        modules['memory'].API.wipe()
+        signals.extractor_signals["curiosities"] = []
+        signals.extractor_signals["zeitgeist"] = ""
+        signals.extractor_signals["mood"] = {}
+        signals.history.clear()
+    interface._factory_reset_fn = _factory_reset
     def _submit_typed_text(text):
         attributed = f"User: {text}"
         interface.log(attributed, source="Text")

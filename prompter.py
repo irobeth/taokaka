@@ -2,9 +2,10 @@ import time
 
 
 class Prompter:
-    def __init__(self, signals, llms, modules=None, interface=None):
+    def __init__(self, signals, llms, modules=None, interface=None, tts=None):
         self.signals = signals
         self.llms = llms
+        self.tts = tts
         self.interface = interface
         if modules is None:
             self.modules = {}
@@ -53,6 +54,8 @@ class Prompter:
                 self.timeSinceLastMessage = 0.0
             else:
                 if not self.system_ready:
+                    if self.tts:
+                        self.tts.play("TAOKAKA ZOOM!!", blocking=True)
                     self._log("SYSTEM READY")
                     self.system_ready = True
 

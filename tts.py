@@ -97,13 +97,16 @@ class TTS:
         self.interface.log("Ready", source="TTS")
         self.signals.tts_ready = True
 
-    def play(self, message):
+    def play(self, message, blocking=False):
         if not self.enabled or not message.strip():
             return
 
         self.signals.sio_queue.put(("current_message", message))
         self._stop_event.clear()
-        threading.Thread(target=self._generate_and_play, args=(message,), daemon=True).start()
+        t = threading.Thread(target=self._generate_and_play, args=(message,), daemon=True)
+        t.start()
+        if blocking:
+            t.join()
 
     def _generate_and_play(self, message):
         self.interface.log(message, source="TTS")

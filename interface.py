@@ -85,6 +85,8 @@ class Interface:
         self._delete_confirm_id = None  # memory ID pending delete confirmation
         self._delete_memory_fn = None   # callback wired from main.py
         self._stt = None                # STT reference wired from main.py
+        self._factory_reset_fn = None   # callback wired from main.py
+        self._factory_reset_pending = False
 
         # Text input mode
         self._typing_mode = False
@@ -249,42 +251,48 @@ class Interface:
         try:
             tty.setcbreak(fd)
             while not self.signals.terminate:
-                if not select.select([sys.__stdin__], [], [], 0.05)[0]:
+                # Poll faster in typing mode so keystrokes aren't dropped
+                timeout = 0.01 if self._typing_mode else 0.05
+                if not select.select([sys.__stdin__], [], [], timeout)[0]:
                     continue
                 ch = os.read(fd, 1)
 
-                # Typing mode: capture all input into buffer
+                # Typing mode: capture all input into buffer (no lock needed —
+                # single writer thread, render only reads for display)
                 if self._typing_mode:
                     if ch == b"\x1b":
-                        # Escape: cancel typing
-                        with self._lock:
-                            self._typing_mode = False
-                            self._typing_buffer = ""
+                        self._typing_buffer = ""
+                        self._typing_mode = False
                         continue
                     elif ch in (b"\r", b"\n"):
-                        # Enter: submit text
-                        with self._lock:
-                            text = self._typing_buffer.strip()
-                            self._typing_mode = False
-                            self._typing_buffer = ""
+                        text = self._typing_buffer.strip()
+                        self._typing_buffer = ""
+                        self._typing_mode = False
                         if text and self._submit_text_fn:
                             self._submit_text_fn(text)
                         continue
                     elif ch in (b"\x7f", b"\x08"):
-                        # Backspace
-                        with self._lock:
-                            self._typing_buffer = self._typing_buffer[:-1]
+                        self._typing_buffer = self._typing_buffer[:-1]
                         continue
                     else:
-                        # Regular character
                         try:
                             c = ch.decode("utf-8", errors="ignore")
                             if c and c.isprintable():
-                                with self._lock:
-                                    self._typing_buffer += c
+                                self._typing_buffer += c
                         except Exception:
                             pass
                         continue
+
+                # Factory reset confirmation intercept
+                if self._factory_reset_pending:
+                    if ch in (b"y", b"Y"):
+                        self._factory_reset_pending = False
+                        if self._factory_reset_fn:
+                            self._factory_reset_fn()
+                            self.log("FACTORY RESET COMPLETE — all memories and curiosities wiped.", source="Interface")
+                    else:
+                        self._factory_reset_pending = False
+                    continue
 
                 # Delete confirmation intercept: next key is Y/N answer
                 if self._delete_confirm_id is not None:
@@ -297,9 +305,8 @@ class Interface:
                 if ch == b"\t":
                     self._cycle_panel()
                 elif ch == b"`":
-                    with self._lock:
-                        self._typing_mode = True
-                        self._typing_buffer = ""
+                    self._typing_buffer = ""
+                    self._typing_mode = True
                 elif ch == b"a":
                     cur = self.signals.audio_mode
                     self.signals.audio_mode = "discord" if cur == "local" else "local"
@@ -328,6 +335,11 @@ class Interface:
                                 tail = os.read(fd, 2)
                                 if tail == b"5~":   # F5
                                     self._toggle_local_stt()
+                        elif seq == b"[2":    # F9-F12 (\x1b[2X~)
+                            if select.select([sys.__stdin__], [], [], 0.05)[0]:
+                                tail = os.read(fd, 2)
+                                if tail == b"4~":   # F12
+                                    self._factory_reset_pending = True
                         elif seq == b"[3":    # Delete key (\x1b[3~)
                             if select.select([sys.__stdin__], [], [], 0.05)[0]:
                                 tail = os.read(fd, 1)
@@ -419,10 +431,17 @@ class Interface:
         text.append(" " * gap)
         text.append_text(right)
 
-        # Typing mode overlay
-        if self._typing_mode:
+        # Factory reset confirmation overlay
+        if self._factory_reset_pending:
+            text.append_text(Text.from_markup(
+                "\n [bold red blink]!! FACTORY RESET — ERASE ALL MEMORIES AND CURIOSITIES? !![/bold red blink]"
+                "\n [bold red]This cannot be undone. Press Y to confirm, any other key to cancel.[/bold red]"
+            ))
+        # Typing mode overlay (no lock — single writer, render only reads)
+        elif self._typing_mode:
+            buf = self._typing_buffer
             typing_text = Text.from_markup(
-                f"\n [bold yellow]> [/bold yellow][white]{self._typing_buffer}[/white][blink]▌[/blink]"
+                f"\n [bold yellow]> [/bold yellow][white]{buf}[/white][blink]▌[/blink]"
                 f"  [dim](Enter to send, Esc to cancel)[/dim]"
             )
             text.append_text(typing_text)
@@ -432,7 +451,7 @@ class Interface:
             title="[bold white]✦ TAOKAKA ✦[/bold white]",
             box=box.HEAVY,
             padding=(0, 1),
-            height=5 if self._typing_mode else None,
+            height=5 if (self._typing_mode or self._factory_reset_pending) else None,
         )
 
     def _render_status(self):
@@ -925,7 +944,7 @@ class Interface:
             Layout(name="memories"),
         )
 
-        with Live(layout, console=self._console, refresh_per_second=4, screen=True):
+        with Live(layout, console=self._console, refresh_per_second=60, screen=True):
             while not self.signals.terminate:
                 try:
                     layout["header"].update(self._render_header())
@@ -941,4 +960,4 @@ class Interface:
                     layout["memories"].update(self._render_memories())
                 except Exception as e:
                     self.log(f"Dashboard render error: {e}", source="Interface")
-                time.sleep(0.25)
+                time.sleep(1 / 60)

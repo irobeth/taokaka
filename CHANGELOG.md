@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.2 — 2026-03-10
+
+### New Features
+- **VoiceFX pipeline** — post-TTS audio effects: pitch shift, speed, high/low-pass filters, gain
+  - Taokaka pitched up +3 semitones for anime voice
+- **Startup sound** — TTS plays "TAOKAKA ZOOM!!" on boot to prime speech models; SYSTEM READY waits for playback to finish
+- **Factory reset (F12)** — wipes all memories, curiosities, zeitgeist, mood, and conversation history with scary confirmation prompt
+- **`--local` / `--discord` CLI flags** — set audio mode at startup
+- **Elasticsearch migration** — replaced ChromaDB with Elasticsearch hybrid search (BM25 + kNN vectors)
+  - Drop-in `ElasticCollection` wrapper, migration script, docker-compose
+- **Universal startup script** (`start.sh`) — auto-starts Docker/ES, checks LLM, installs frontend deps
+- **Discord voice retry** — handles 4017 close code with force-disconnect and backoff (3s, 6s, 9s)
+
+### Changes
+- **60fps dashboard** — render loop bumped from 4fps to 60fps for responsive typing and UI
+- **Lock-free typing** — removed lock contention from text input; single-writer pattern with faster polling (10ms)
+- **Username keyword filtering** — `strip_attributions()` removes `"Username: "` prefixes before keyword extraction; added chat labels (user, assistant, taokaka, irobeth) to stopwords
+- **Increased extractor max_tokens** — all comprehension extractors bumped to accommodate longer think blocks
+
 ## 0.2.0 — 2026-03-09
 
 ### New Features

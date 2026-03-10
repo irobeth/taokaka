@@ -6,7 +6,7 @@ import requests
 from constants import AI_NAME, BANNED_TOKENS, LLM_ENDPOINT
 from prompts import load_prompt, strip_think
 from modules.module import Module
-from stopwords import extract_keywords
+from stopwords import extract_keywords, strip_attributions
 
 _MIN_MESSAGES = 10
 _INTERVAL = 60
@@ -107,7 +107,7 @@ class ZeitgeistExtractor(Module):
             summary = "\n".join(summary_lines).strip()
 
             # Also extract keywords from the transcript itself via stopword filtering
-            transcript_keywords = extract_keywords(transcript)
+            transcript_keywords = extract_keywords(strip_attributions(transcript))
 
             # Merge: LLM keywords first (higher signal), then transcript keywords
             seen = set()
