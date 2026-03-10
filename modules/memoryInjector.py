@@ -1,8 +1,7 @@
 from modules.module import Module
+from modules.elasticCollection import ElasticCollection
 from constants import *
-from chromadb.config import Settings
 from datetime import datetime
-import chromadb
 import json
 import uuid
 
@@ -16,17 +15,17 @@ class MemoryInjector(Module):
         self.prompt_injection.text = ""
         self.prompt_injection.priority = 60
 
-        self.chroma_client = chromadb.PersistentClient(path="./memories/chroma.db", settings=Settings(anonymized_telemetry=False))
-        self.collection = self.chroma_client.get_or_create_collection(name="neuro_collection")
-        print(f"MEMORY: Loaded {self.collection.count()} memories from database.")
-        if self.collection.count() == 0:
-            print("MEMORY: No memories found in database. Importing from memoryinit.json")
+        self.collection = ElasticCollection()
+        count = self.collection.count()
+        print(f"MEMORY: Loaded {count} memories from Elasticsearch.")
+        if count == 0:
+            print("MEMORY: No memories found. Importing from memoryinit.json")
             self.API.import_json(path="./memories/memoryinit.json")
 
         self._refresh_all_memories()
 
     def _refresh_all_memories(self):
-        """Load all memories from ChromaDB into signals.all_memories for the tree browser."""
+        """Load all memories from Elasticsearch into signals.all_memories for the tree browser."""
         all_data = self.collection.get()
         memories = []
         for i in range(len(all_data["ids"])):
@@ -123,8 +122,7 @@ class MemoryInjector(Module):
             self.outer._refresh_all_memories()
 
         def wipe(self):
-            self.outer.chroma_client.reset()
-            self.outer.chroma_client.create_collection(name="neuro_collection")
+            self.outer.collection.wipe()
             self.outer._refresh_all_memories()
 
         def clear_short_term(self):

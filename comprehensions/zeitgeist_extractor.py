@@ -65,7 +65,7 @@ class ZeitgeistExtractor(Module):
 
         data = {
             "mode": "instruct",
-            "max_tokens": 300,
+            "max_tokens": 5000,
             "skip_special_tokens": False,
             "custom_token_bans": BANNED_TOKENS,
             "stop": ["<|eot_id|>"],

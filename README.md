@@ -91,7 +91,7 @@ These run in their own threads on independent schedules, publishing to `signals.
 | STT | [RealtimeSTT](https://github.com/KoljaB/RealtimeSTT) + [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (`large-v3-turbo`) |
 | TTS | [Kokoro](https://github.com/remsky/Kokoro-82M) (ONNX, default) or [F5-TTS-MLX](https://github.com/lucasnewman/f5-tts-mlx) |
 | LLM | Any OpenAI-compatible endpoint ([LM Studio](https://lmstudio.ai/) tested) |
-| Memory | [ChromaDB](https://github.com/chroma-core/chroma) vector store |
+| Memory | [Elasticsearch](https://www.elastic.co/elasticsearch) hybrid search (BM25 + kNN vectors) |
 | Discord | [discord.py](https://github.com/Rapptz/discord.py) with voice support |
 | Dashboard | [Rich](https://github.com/Textualize/rich) terminal UI |
 | Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) dashboard (auto-started, port 3000) |
@@ -141,6 +141,7 @@ python main.py --raw
 
 - Python 3.11
 - Node.js (for React frontend)
+- Docker (for Elasticsearch)
 - macOS (tested on Apple Silicon — `sounddevice` and `f5-tts-mlx` are Mac-oriented)
 - An OpenAI-compatible LLM endpoint (LM Studio, etc.)
 - Discord bot token (for Discord features)
@@ -165,10 +166,33 @@ Configure `constants.py` — check everything marked `#UNIQUE#`.
 
 ### Running
 
-1. Start your LLM server (e.g. LM Studio on `http://127.0.0.1:1234`)
-2. `python main.py` (or `python main.py --raw` for raw output)
-3. Wait for "SYSTEM READY" in the dashboard
-4. The React frontend auto-starts at `http://localhost:3000`
+The simplest way to start everything:
+```bash
+./start.sh               # or: ./start.sh --raw
+```
+
+This will:
+1. Activate your venv (if present)
+2. Start Elasticsearch via Docker if not already running
+3. Check the LLM endpoint (warns if down, continues anyway)
+4. Install frontend npm deps if missing
+5. Detect un-migrated ChromaDB data and prompt you to migrate
+6. Launch `main.py`
+
+Or start manually:
+1. `docker compose up -d` (Elasticsearch)
+2. Start your LLM server (e.g. LM Studio on `http://127.0.0.1:1234`)
+3. `python main.py` (or `python main.py --raw` for raw output)
+4. Wait for "SYSTEM READY" in the dashboard
+5. The React frontend auto-starts at `http://localhost:3000`
+
+### Migrating from ChromaDB
+
+If you have existing memories in ChromaDB (`memories/chroma.db`):
+```bash
+python scripts/migrate_chroma_to_es.py --dry-run   # preview
+python scripts/migrate_chroma_to_es.py              # execute
+```
 
 ## Credits
 

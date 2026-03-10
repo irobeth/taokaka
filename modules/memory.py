@@ -1,8 +1,7 @@
 from modules.module import Module
+from modules.elasticCollection import ElasticCollection
 from constants import *
-from chromadb.config import Settings
 from datetime import datetime
-import chromadb
 import requests
 import json
 import uuid
@@ -21,10 +20,10 @@ class Memory(Module):
 
         self.processed_count = 0
 
-        self.chroma_client = chromadb.PersistentClient(path="./memories/chroma.db", settings=Settings(anonymized_telemetry=False))
-        self.collection = self.chroma_client.get_or_create_collection(name="neuro_collection")
-        print(f"MEMORY: Loaded {self.collection.count()} memories from database.")
-        if self.collection.count() == 0:
+        self.collection = ElasticCollection()
+        count = self.collection.count()
+        print(f"MEMORY: Loaded {count} memories from Elasticsearch.")
+        if count == 0:
             print("MEMORY: No memories found in database. Importing from memoryinit.json")
             self.API.import_json(path="./memories/memoryinit.json")
 
@@ -172,7 +171,7 @@ class Memory(Module):
 
                 data = {
                     "mode": "instruct",
-                    "max_tokens": 400,
+                    "max_tokens": 1000,
                     "skip_special_tokens": False,  # Necessary for Llama 3
                     "custom_token_bans": BANNED_TOKENS,
                     "stop": STOP_STRINGS.remove("\n"),
@@ -232,8 +231,7 @@ class Memory(Module):
             self.outer._refresh_all_memories()
 
         def wipe(self):
-            self.outer.chroma_client.reset()
-            self.outer.chroma_client.create_collection(name="neuro_collection")
+            self.outer.collection.wipe()
             self.outer._refresh_all_memories()
 
         def clear_short_term(self):

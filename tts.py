@@ -7,6 +7,7 @@ import discord
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
+from scipy.signal import sosfilt, butter
 
 from f5_tts_mlx.generate import generate
 from constants import OUTPUT_DEVICE_INDEX, VOICE_REFERENCE, VOICE_REFERENCE_TEXT
@@ -14,6 +15,71 @@ from constants import OUTPUT_DEVICE_INDEX, VOICE_REFERENCE, VOICE_REFERENCE_TEXT
 _REF_AUDIO_PATH = os.path.join("voices", VOICE_REFERENCE)
 _KOKORO_MODEL_PATH = os.path.join("kokoro_models", "kokoro-v1.0.int8.onnx")
 _KOKORO_VOICES_PATH = os.path.join("kokoro_models", "voices-v1.0.bin")
+
+
+class VoiceFX:
+    """Audio effects pipeline applied after TTS generation, before playback.
+
+    All parameters can be changed at runtime via signals.voice_fx.
+    Set an effect to None/0 to disable it.
+    """
+
+    def __init__(self):
+        self.pitch_semitones = 0.0   # pitch shift in semitones (positive = higher)
+        self.speed = 1.0             # playback speed multiplier (1.0 = normal)
+        self.highpass_hz = 0         # high-pass filter cutoff (0 = off)
+        self.lowpass_hz = 0          # low-pass filter cutoff (0 = off)
+        self.gain_db = 0.0           # volume adjustment in dB
+
+    def process(self, audio, sample_rate):
+        """Apply all active effects to audio samples. Returns (audio, sample_rate)."""
+        if self.pitch_semitones != 0.0:
+            audio, sample_rate = self._pitch_shift(audio, sample_rate)
+
+        if self.speed != 1.0 and self.speed > 0:
+            audio, sample_rate = self._speed_change(audio, sample_rate)
+
+        if self.highpass_hz and self.highpass_hz > 0:
+            audio = self._highpass(audio, sample_rate)
+
+        if self.lowpass_hz and self.lowpass_hz > 0:
+            audio = self._lowpass(audio, sample_rate)
+
+        if self.gain_db != 0.0:
+            audio = audio * (10.0 ** (self.gain_db / 20.0))
+            audio = np.clip(audio, -1.0, 1.0)
+
+        return audio, sample_rate
+
+    def _pitch_shift(self, audio, sr):
+        """Pitch shift by resampling: shift up = shorter signal played at original rate."""
+        factor = 2.0 ** (self.pitch_semitones / 12.0)
+        indices = np.arange(0, len(audio), factor)
+        indices = indices[indices < len(audio)].astype(int)
+        return audio[indices], sr
+
+    def _speed_change(self, audio, sr):
+        """Change speed by resampling without pitch change."""
+        indices = np.arange(0, len(audio), self.speed)
+        indices = indices[indices < len(audio)].astype(int)
+        return audio[indices], sr
+
+    def _highpass(self, audio, sr):
+        sos = butter(4, self.highpass_hz, btype='high', fs=sr, output='sos')
+        return sosfilt(sos, audio, axis=0).astype(np.float32)
+
+    def _lowpass(self, audio, sr):
+        sos = butter(4, self.lowpass_hz, btype='low', fs=sr, output='sos')
+        return sosfilt(sos, audio, axis=0).astype(np.float32)
+
+    @property
+    def active(self):
+        """True if any effect is enabled."""
+        return (self.pitch_semitones != 0.0
+                or self.speed != 1.0
+                or (self.highpass_hz and self.highpass_hz > 0)
+                or (self.lowpass_hz and self.lowpass_hz > 0)
+                or self.gain_db != 0.0)
 
 
 class TTS:
@@ -25,6 +91,7 @@ class TTS:
         self._stop_event = threading.Event()
         self._active_vc = None
         self._kokoro = None
+        self.voice_fx = VoiceFX()
         self.API = self.API(self)
 
         self.interface.log("Ready", source="TTS")
@@ -56,6 +123,13 @@ class TTS:
             if self._stop_event.is_set():
                 self.interface.trace("stopped before playback", source="TTS", level="warn")
                 return
+
+            # Apply voice effects pipeline
+            if self.voice_fx.active:
+                self.interface.trace("applying voice FX", source="TTS")
+                audio, sr = sf.read(tmp_path, dtype="float32")
+                audio, sr = self.voice_fx.process(audio, sr)
+                sf.write(tmp_path, audio, sr)
 
             mode = self.signals.audio_mode
             if mode == "local":

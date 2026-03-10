@@ -78,7 +78,7 @@ class MemoryExtractor(Module):
 
                 data = {
                     "mode": "instruct",
-                    "max_tokens": 400,
+                    "max_tokens": 1000,
                     "skip_special_tokens": False,
                     "custom_token_bans": BANNED_TOKENS,
                     "stop": STOP_STRINGS.remove("\n"),

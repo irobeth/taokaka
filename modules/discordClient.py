@@ -61,6 +61,12 @@ class DiscordClient(Module):
         @bot.event
         async def on_ready():
             self.interface.log(f"{bot.user} is online.", source="Discord")
+            # Force-disconnect any ghost voice sessions from a previous crash
+            for vc in bot.voice_clients:
+                self.interface.log(f"Disconnecting ghost VC in {vc.channel}", source="Discord")
+                await vc.disconnect(force=True)
+            connections.clear()
+            self.signals.discord_vc = None
 
         # --- Text channel messages ---
 
@@ -142,7 +148,37 @@ class DiscordClient(Module):
                 self.discord_stt = DiscordSTT(self.signals, self.interface, partial(self.stt.process_text, source="discord"))
                 self.discord_stt.init_model()
 
-            vc = await voice.channel.connect()
+            # Force-disconnect any stale session in this guild first
+            for existing_vc in bot.voice_clients:
+                if existing_vc.guild == ctx.guild:
+                    self.interface.log("Cleaning up stale voice connection", source="Discord")
+                    await existing_vc.disconnect(force=True)
+                    await asyncio.sleep(3)  # give Discord time to release the session
+
+            # Connect with retry — Discord may reject with 4017 during voice server switch
+            max_retries = 3
+            vc = None
+            for attempt in range(max_retries):
+                try:
+                    vc = await voice.channel.connect(timeout=30.0)
+                    break
+                except Exception as e:
+                    code = getattr(e, 'code', None)
+                    reason = getattr(e, 'reason', '')
+                    self.interface.log(
+                        f"Voice connect attempt {attempt + 1}/{max_retries} failed: "
+                        f"code={code} reason={reason!r} {type(e).__name__}: {e}",
+                        source="Discord",
+                    )
+                    for partial_vc in bot.voice_clients:
+                        if partial_vc.guild == ctx.guild:
+                            await partial_vc.disconnect(force=True)
+                    if attempt < max_retries - 1:
+                        wait = 3 + attempt * 3  # 3s, 6s, 9s
+                        self.interface.log(f"Waiting {wait}s before retry...", source="Discord")
+                        await asyncio.sleep(wait)
+            if vc is None:
+                return await ctx.respond("Failed to connect to voice after retries.", ephemeral=True)
             connections[ctx.guild.id] = vc
             monitored_channels[ctx.guild.id] = ctx.channel.id
             if quiet:

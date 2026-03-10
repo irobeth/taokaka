@@ -41,6 +41,10 @@ async def main():
     # CORE FILES
     raw_mode = "--raw" in sys.argv
     signals = Signals()
+    if "--local" in sys.argv:
+        signals._audio_mode = "local"
+    elif "--discord" in sys.argv:
+        signals._audio_mode = "discord"
     interface = Interface(signals, raw_mode=raw_mode)
     interface.start()
 
@@ -68,6 +72,7 @@ async def main():
     # Create TTS
     tts = TTS(signals, interface)
     tts.stt = stt
+    tts.voice_fx.pitch_semitones = 3.0
     # Create LLMWrappers
     llmState = LLMState()
     llms = {

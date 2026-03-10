@@ -101,7 +101,7 @@ class MoodExtractor(Module):
     def _llm_call(self, prompt):
         data = {
             "mode": "instruct",
-            "max_tokens": 400,
+            "max_tokens": 4000,
             "skip_special_tokens": False,
             "custom_token_bans": BANNED_TOKENS,
             "messages": [{"role": "user", "content": prompt}],

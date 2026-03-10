@@ -166,7 +166,7 @@ class CuriosityExtractor(Module):
             curiosities=curiosities_text,
             conversation=chat_section,
         )
-        raw = self._llm_call(prompt, max_tokens=600)
+        raw = self._llm_call(prompt, max_tokens=4000)
 
         collection = self.memory_injector.collection
         responses = [r.replace("{/qa}", "").strip() for r in raw.split("{qa}") if r.strip()]
