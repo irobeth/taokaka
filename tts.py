@@ -94,6 +94,11 @@ class TTS:
         self.voice_fx = VoiceFX()
         self.API = self.API(self)
 
+        try:
+            dev = sd.query_devices(OUTPUT_DEVICE_INDEX)
+            self.interface.log(f"Output device [{OUTPUT_DEVICE_INDEX}]: {dev['name']} (channels={dev['max_output_channels']}, sr={dev['default_samplerate']})", source="TTS")
+        except Exception as e:
+            self.interface.log(f"Output device [{OUTPUT_DEVICE_INDEX}]: query failed — {e}", source="TTS")
         self.interface.log("Ready", source="TTS")
         self.signals.tts_ready = True
 
@@ -151,6 +156,15 @@ class TTS:
             self.interface.log(f"error: {e}", source="TTS")
         finally:
             self._unmute_local_mic()
+            # Flush any STT audio buffered during playback so Tao doesn't hear herself
+            if self.stt and self.stt.recorder:
+                try:
+                    self.stt.recorder.clear_audio_queue()
+                    if hasattr(self.stt.recorder, 'silero_vad_model'):
+                        self.stt.recorder.silero_vad_model.reset_states()
+                    self.stt.recorder.frames.clear()
+                except Exception:
+                    pass
             self.signals.last_message_time = time.time()
             self.signals.AI_speaking = False
             self._active_vc = None
@@ -172,20 +186,19 @@ class TTS:
             self.interface.trace("loading Kokoro model", source="TTS", level="info")
             from kokoro_onnx import Kokoro
             self._kokoro = Kokoro(_KOKORO_MODEL_PATH, _KOKORO_VOICES_PATH)
-        self.interface.trace(f"kokoro voice=af_heart speed=1.0 out={output_path!r}", source="TTS")
-        samples, sample_rate = self._kokoro.create(message, voice="af_heart", speed=1.0, lang="en-us")
+        self.interface.trace(f"kokoro voice=af_bella speed=1.0 out={output_path!r}", source="TTS")
+        samples, sample_rate = self._kokoro.create(message, voice="af_bella", speed=1.0, lang="en-us")
         self.interface.trace(f"kokoro generated {len(samples)} samples @ {sample_rate}Hz", source="TTS")
         sf.write(output_path, samples, sample_rate)
 
     def _mute_local_mic(self):
-        if self.stt and self.stt.recorder and self.signals.audio_mode == "local":
-            self.interface.trace("muting local mic for playback", source="TTS")
-            self.stt.recorder.set_microphone(False)
+        # No-op: mic stays open, but process_text gates on AI_speaking signal.
+        # RealtimeSTT's set_microphone() kills the multiprocessing pipe and
+        # can't reliably recover, causing "Bad file descriptor" spam.
+        pass
 
     def _unmute_local_mic(self):
-        if self.stt and self.stt.recorder and self.signals.audio_mode == "local":
-            self.interface.trace("unmuting local mic", source="TTS")
-            self.stt.recorder.set_microphone(True)
+        pass
 
     def _play_local(self, tmp_path):
         audio, sr = sf.read(tmp_path, dtype="float32")

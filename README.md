@@ -73,7 +73,7 @@ Modules inject context into the system prompt before it reaches the LLM, sorted 
 
 After the LLM responds, thinking blocks are separated and stored in `signals.recent_thoughts`. Only the spoken portion enters conversation history. Before TTS:
 
-- **TTSResponseExtractor** — Strips any remaining `</think>` tags and removes emojis/non-speakable unicode.
+- **TTSResponseExtractor** — Extracts `{me}...{/me}` emotes (for vtuber control), `{nick user=""}...{/nick}` nicknames (stored in ES), strips `</think>` tags, emojis, and non-speakable unicode.
 
 ### Background extractors
 

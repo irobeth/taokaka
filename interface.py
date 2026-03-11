@@ -22,7 +22,7 @@ _WIDTH = 250
 _HEIGHT = 75
 _BODY_H = _HEIGHT - 3  # header takes 3 rows
 
-_PANELS = ["online", "pipeline", "conversation", "memory_tree", "memories", "trace", "zeitgeist", "thoughts", "prompt"]
+_PANELS = ["online", "pipeline", "conversation", "memory_tree", "memories", "superpane", "zeitgeist", "thoughts"]
 
 # Explicit heights for every panel (including border).
 # Inner content lines = height - 2.
@@ -32,8 +32,7 @@ _LEFT_PIPELINE_H = _BODY_H - _LEFT_STATUS_H - _LEFT_ONLINE_H  # fills left remai
 
 _PANEL_H = {
     "conversation": 16,
-    "trace":        14,
-    "prompt":       _BODY_H - 16 - 14,          # fills center remainder
+    "superpane":    _BODY_H - 16,                # prompt + log share this space
     "status":       _LEFT_STATUS_H,
     "online":       _LEFT_ONLINE_H,
     "pipeline":     _LEFT_PIPELINE_H,
@@ -88,6 +87,16 @@ class Interface:
         self._factory_reset_fn = None   # callback wired from main.py
         self._factory_reset_pending = False
 
+        # Superpane (prompt/log) — auto-cycles every 15s, or pinned by P/L
+        self._superpane_view = "log"     # "prompt" or "log"
+        self._superpane_pinned = False   # True if user manually selected P or L
+        self._superpane_last_flip = time.time()
+        self._superpane_interval = 15    # seconds between auto-flips
+
+        # View mode: "panels" (dashboard) or "raw" (full-screen scrolling log)
+        self._view_mode = "panels"
+        self._stream_buffer = ""         # accumulates streamed LLM tokens for raw view
+
         # Text input mode
         self._typing_mode = False
         self._typing_buffer = ""
@@ -104,6 +113,18 @@ class Interface:
             self._real_stdout.write(f"{ts} {prefix}{message}\n")
             self._real_stdout.flush()
 
+    def stream_token(self, token: str):
+        """Accumulate streamed LLM tokens. In raw view, they appear inline."""
+        self._stream_buffer += token
+        # When we get a newline, flush the accumulated line into the log
+        if "\n" in self._stream_buffer:
+            lines = self._stream_buffer.split("\n")
+            # All complete lines go to log, keep the incomplete remainder
+            for line in lines[:-1]:
+                if line.strip():
+                    self.trace(line, source="LLM>>", level="info")
+            self._stream_buffer = lines[-1]
+
     def trace(self, message: str, source: str = "", level: str = "debug"):
         ts = datetime.now().strftime("%H:%M:%S")
         with self._lock:
@@ -116,12 +137,7 @@ class Interface:
 
     def start(self):
         if self._raw_mode:
-            self._real_stdout = sys.stdout
-            sys.stdout = _StdoutCapture(self.log)
-            self._started = True
-            self._real_stdout.write("Raw output mode — dashboard disabled\n")
-            self._real_stdout.flush()
-            return
+            self._view_mode = "raw"
 
         self._real_stdout.write(f"\033[8;{_HEIGHT};{_WIDTH}t")
         self._real_stdout.flush()
@@ -146,10 +162,8 @@ class Interface:
         b"c": "conversation",
         b"b": "memory_tree",
         b"e": "memories",
-        b"l": "trace",
         b"z": "zeitgeist",
         b"h": "thoughts",
-        b"p": "prompt",
     }
 
     def _select_panel(self, name):
@@ -313,6 +327,16 @@ class Interface:
                 elif ch == b"r":
                     with self._lock:
                         self._include_raw = not self._include_raw
+                elif ch == b"v":
+                    self._view_mode = "raw" if self._view_mode == "panels" else "panels"
+                elif ch == b"p":
+                    self._superpane_view = "prompt"
+                    self._superpane_pinned = True
+                    self._superpane_last_flip = time.time()
+                elif ch == b"l":
+                    self._superpane_view = "log"
+                    self._superpane_pinned = True
+                    self._superpane_last_flip = time.time()
                 elif ch in self._PANEL_KEYS:
                     self._select_panel(self._PANEL_KEYS[ch])
                 elif ch in (b"\r", b"\n"):
@@ -411,14 +435,23 @@ class Interface:
 
         rating = SEVERITY_LABELS.get(s.max_profanity_severity, "?")
 
+        alertness = s.alertness
+        if alertness == "awake":
+            alert_label = "[bold green]AWAKE[/bold green]"
+        elif alertness == "napping":
+            alert_label = "[yellow]napping zzz[/yellow]"
+        else:
+            alert_label = "[dim]asleep[/dim]"
+
         left = Text.from_markup(
-            f" {dot(s.stt_ready)} STT {'[green]ON[/green]' if self._stt and self._stt.enabled else '[red]OFF[/red]'}  "
+            f" {dot(s.stt_ready)} STT {'[green]ON[/green]' if self._stt and self._stt.enabled else '[red]OFF (F5)[/red]'}  "
             f"{dot(s.tts_ready)} TTS  "
             f"{dot(disc_up)} Discord  "
             f"[dim]│[/dim]  Mode: {mode_label}  "
             f"[dim]│[/dim]  Engine: [cyan]{s.tts_engine}[/cyan]  "
             f"[dim]│[/dim]  Rating: [yellow]{rating}[/yellow]  "
-            f"[dim]│[/dim]  Attention Span: {bar}  "
+            f"[dim]│[/dim]  {alert_label}  "
+            f"[dim]│[/dim]  Attention: {bar}  "
             f"[dim]│[/dim]  {system_label}"
             f"  [dim]│[/dim]  [cyan]{active_name}[/cyan]"
         )
@@ -512,7 +545,7 @@ class Interface:
         text = Text(overflow="fold")
         if prompt:
             lines = prompt.splitlines()
-            visible, pg, total = self._paginate(lines, "prompt")
+            visible, pg, total = self._paginate(lines, "superpane")
             text.append("\n".join(visible), style="dim white")
         else:
             visible, pg, total = [], 1, 1
@@ -524,7 +557,7 @@ class Interface:
             subtitle_align="right",
             box=box.ROUNDED,
             padding=(0, 1),
-            border_style=self._border("prompt"),
+            border_style="cyan" if self._superpane_view == "prompt" else "#BF00FF",
         )
 
     def _render_conversation(self):
@@ -568,7 +601,7 @@ class Interface:
     def _render_log(self):
         with self._lock:
             all_entries = list(self._entries)
-        entries, pg, total = self._paginate(all_entries, "trace")
+        entries, pg, total = self._paginate(all_entries, "superpane")
         text = Text(overflow="fold")
         for ts, source, message, level in entries:
             ts_style, src_style, msg_style = self._LEVEL_STYLES.get(
@@ -586,7 +619,7 @@ class Interface:
             subtitle_align="right",
             box=box.ROUNDED,
             padding=(0, 1),
-            border_style=self._border("trace"),
+            border_style="cyan" if self._superpane_view == "log" else "#BF00FF",
         )
 
     def _render_online(self):
@@ -916,48 +949,88 @@ class Interface:
             border_style=self._border("memories"),
         )
 
+    def _render_raw_view(self):
+        """Full-screen scrolling log view for debugging."""
+        with self._lock:
+            all_entries = list(self._entries)
+        # Show as many entries as fit the screen
+        max_lines = _HEIGHT - 4  # border + title
+        entries = all_entries[-max_lines:]
+        text = Text(overflow="fold")
+        for ts, source, message, level in entries:
+            ts_style, src_style, msg_style = self._LEVEL_STYLES.get(
+                level, self._LEVEL_STYLES[None]
+            )
+            text.append(f"{ts} ", style=ts_style)
+            if source:
+                text.append(f"{source} ", style=src_style)
+            text.append(f"{message}\n", style=msg_style)
+        # Show in-progress stream buffer at the bottom
+        if self._stream_buffer.strip():
+            text.append(f"LLM>> {self._stream_buffer}", style="bold yellow")
+        return Panel(
+            text,
+            title="[bold]Raw Log[/bold]  [dim](press V to return to dashboard)[/dim]",
+            box=box.HEAVY,
+            padding=(0, 1),
+        )
+
     def _run(self):
-        layout = Layout()
-        layout.split_column(
+        # Dashboard layout
+        dashboard = Layout()
+        dashboard.split_column(
             Layout(name="header", size=3),
             Layout(name="body"),
         )
-        layout["body"].split_row(
+        dashboard["body"].split_row(
             Layout(name="left", ratio=2),
             Layout(name="center", ratio=7),
             Layout(name="right", ratio=3),
         )
-        layout["left"].split_column(
+        dashboard["left"].split_column(
             Layout(name="status", size=_PANEL_H["status"]),
             Layout(name="online", size=_PANEL_H["online"]),
             Layout(name="pipeline"),
         )
-        layout["center"].split_column(
+        dashboard["center"].split_column(
             Layout(name="conversation", size=_PANEL_H["conversation"]),
-            Layout(name="prompt"),
-            Layout(name="trace", size=_PANEL_H["trace"]),
+            Layout(name="superpane"),
         )
-        layout["right"].split_column(
+        dashboard["right"].split_column(
             Layout(name="zeitgeist", size=_PANEL_H["zeitgeist"]),
             Layout(name="thoughts", size=_PANEL_H["thoughts"]),
             Layout(name="memory_tree", size=_PANEL_H["memory_tree"]),
             Layout(name="memories"),
         )
 
-        with Live(layout, console=self._console, refresh_per_second=60, screen=True):
+        # Root layout — swaps between dashboard and raw view
+        root = Layout()
+
+        with Live(root, console=self._console, refresh_per_second=60, screen=True):
             while not self.signals.terminate:
                 try:
-                    layout["header"].update(self._render_header())
-                    layout["status"].update(self._render_status())
-                    layout["prompt"].update(self._render_prompt())
-                    layout["conversation"].update(self._render_conversation())
-                    layout["trace"].update(self._render_log())
-                    layout["online"].update(self._render_online())
-                    layout["pipeline"].update(self._render_pipeline())
-                    layout["zeitgeist"].update(self._render_zeitgeist())
-                    layout["thoughts"].update(self._render_thoughts())
-                    layout["memory_tree"].update(self._render_memory_tree())
-                    layout["memories"].update(self._render_memories())
+                    if self._view_mode == "raw":
+                        root.update(self._render_raw_view())
+                    else:
+                        dashboard["header"].update(self._render_header())
+                        dashboard["status"].update(self._render_status())
+                        dashboard["conversation"].update(self._render_conversation())
+                        # Superpane auto-cycle
+                        if not self._superpane_pinned:
+                            if time.time() - self._superpane_last_flip > self._superpane_interval:
+                                self._superpane_view = "log" if self._superpane_view == "prompt" else "prompt"
+                                self._superpane_last_flip = time.time()
+                        if self._superpane_view == "prompt":
+                            dashboard["superpane"].update(self._render_prompt())
+                        else:
+                            dashboard["superpane"].update(self._render_log())
+                        dashboard["online"].update(self._render_online())
+                        dashboard["pipeline"].update(self._render_pipeline())
+                        dashboard["zeitgeist"].update(self._render_zeitgeist())
+                        dashboard["thoughts"].update(self._render_thoughts())
+                        dashboard["memory_tree"].update(self._render_memory_tree())
+                        dashboard["memories"].update(self._render_memories())
+                        root.update(dashboard)
                 except Exception as e:
                     self.log(f"Dashboard render error: {e}", source="Interface")
                 time.sleep(1 / 60)

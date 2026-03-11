@@ -52,6 +52,9 @@ class ElasticCollection:
     def __init__(self, es_url="http://localhost:9200", index_name="neuro_memories"):
         self.es = Elasticsearch(es_url)
         self.index_name = index_name
+        # Load embedding model from local cache — no HuggingFace network calls
+        import os
+        os.environ["HF_HUB_OFFLINE"] = "1"
         self._model = SentenceTransformer("all-MiniLM-L6-v2")
 
         if not self.es.indices.exists(index=self.index_name):

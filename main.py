@@ -18,6 +18,7 @@ from llmWrappers.textLLMWrapper import TextLLMWrapper
 from llmWrappers.imageLLMWrapper import ImageLLMWrapper
 from stt import STT
 from tts import TTS
+from constants import HOST_NAME
 from modules.twitchClient import TwitchClient
 from modules.discordClient import DiscordClient
 from modules.audioPlayer import AudioPlayer
@@ -41,6 +42,7 @@ async def main():
     # CORE FILES
     raw_mode = "--raw" in sys.argv
     signals = Signals()
+    signals.active_voice_user = HOST_NAME  # default speaker for local STT
     if "--local" in sys.argv:
         signals._audio_mode = "local"
     elif "--discord" in sys.argv:
@@ -113,7 +115,7 @@ async def main():
         signals.history.clear()
     interface._factory_reset_fn = _factory_reset
     def _submit_typed_text(text):
-        attributed = f"User: {text}"
+        attributed = f"{HOST_NAME}: {text}"
         interface.log(attributed, source="Text")
         signals.history.append({"role": "user", "content": attributed, "timestamp": time.time()})
         signals.last_message_time = time.time()

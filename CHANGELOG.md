@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.3 — 2026-03-11
+
+### New Features
+- **Nickname extraction & storage** — Tao wraps nicknames in `{nick user="name"}Nickname{/nick}` tags; extracted and stored in Elasticsearch as `nickname` type memories (overwrites on reassignment)
+- **Emote extraction** — `{me}...{/me}` and `*asterisk*` emotes extracted to `signals.extractor_signals["emotes"]` for vtuber control
+- **Alertness state machine** — replaces simple patience timer: awake (15s) → napping (90s) → asleep (never self-prompts); any activity wakes Tao up
+- **Superpane** — merged prompt+log panels with P/L pin keys and 15s auto-cycle
+- **Raw view mode** — press `V` to toggle between dashboard and full-screen scrolling log with streaming tokens
+- **Audio volume gate** — rejects recordings below RMS threshold to filter ambient noise
+- **Audio debounce** — increased silence duration (1.0s), min recording length (0.5s), min gap (0.5s)
+- **LLM token streaming** — tokens stream to interface in real-time via `stream_token()`
+
+### Changes
+- **Alertness display** in header (AWAKE / napping zzz / asleep)
+- **Context size** corrected from 75000 to 32000 (matching model capability)
+- **max_tokens reduced** to 200 for shorter 1-2 sentence responses
+- **Speaker attribution** uses HOST_NAME instead of "User" for local STT
+- **Kokoro voice** changed to `af_bella`
+- **SentenceTransformer offline** — `HF_HUB_OFFLINE=1` prevents network calls on cached models
+- **SSE stream cleanup** — `stream_response.close()` in finally block prevents response bleeding
+- **STT mic fix** — mute/unmute changed to no-ops (set_microphone kills multiprocessing pipes); AI_speaking gate handles filtering instead
+- **Self-hearing prevention** — flush audio queue, reset Silero VAD states, clear frames after TTS playback
+- **Idle timer freeze** — timer pauses while AI is thinking or speaking
+- **System prompt** — 1-2 sentence max, `{me}` emote tags, `{nick}` nickname tags, `<think>` response format section
+
 ## 0.2.2 — 2026-03-10
 
 ### New Features

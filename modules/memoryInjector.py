@@ -36,7 +36,29 @@ class MemoryInjector(Module):
             })
         self.signals.all_memories = memories
 
+    def _store_pending_nicknames(self):
+        """Consume pending nicknames from extractors and upsert into ES."""
+        pending = self.signals.extractor_signals.pop("pending_nicknames", [])
+        for entry in pending:
+            user = entry["user"]
+            nickname = entry["nickname"]
+            doc_id = f"nickname_{user}"
+            document = f"{AI_NAME} calls {user} \"{nickname}\""
+            metadata = {
+                "type": "nickname",
+                "related_user": user,
+                "title": nickname,
+                "keywords": f"nickname, {user}, {nickname}",
+                "created_at": datetime.now().isoformat(),
+            }
+            self.collection.upsert([doc_id], documents=[document], metadatas=[metadata])
+        if pending:
+            self._refresh_all_memories()
+
     def get_prompt_injection(self):
+        # Store any extracted nicknames before building the prompt
+        self._store_pending_nicknames()
+
         # Collect timestamped messages from all three chat sources
         combined = []
 

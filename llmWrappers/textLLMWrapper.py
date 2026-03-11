@@ -58,7 +58,7 @@ class TextLLMWrapper(AbstractLLMWrapper):
         return {
             "stream": True,
             "mode": "instruct",
-            "max_tokens": 1000,
+            "max_tokens": 200,
             "skip_special_tokens": False,
             "custom_token_bans": BANNED_TOKENS,
             "stop": STOP_STRINGS,

@@ -23,7 +23,7 @@ class AbstractLLMWrapper:
             self.modules = modules
 
         self.headers = {"Content-Type": "application/json"}
-        self.comprehensions = [TTSResponseExtractor()]
+        self.comprehensions = [TTSResponseExtractor(signals=self.signals)]
         self.profanity_filter = ProfanityFilter(max_severity=2)
 
         load_dotenv()
@@ -86,29 +86,38 @@ class AbstractLLMWrapper:
         stream_response = requests.post(url, headers=self.headers, json=data,
                                         verify=False, stream=True)
         self._trace(f"← HTTP {stream_response.status_code}  streaming…")
-        response_stream = sseclient.SSEClient(stream_response)
 
-        AI_message = ''
-        raw_events = []
-        for event in response_stream.events():
-            raw_events.append(event.data)
+        try:
+            response_stream = sseclient.SSEClient(stream_response)
 
-            if self.llmState.next_cancelled:
-                continue
+            AI_message = ''
+            raw_events = []
+            for event in response_stream.events():
+                raw_events.append(event.data)
 
-            if event.data == "[DONE]":
-                break
+                if self.llmState.next_cancelled:
+                    continue
 
-            payload = json.loads(event.data)
-            chunk = payload['choices'][0]['delta'].get('content') or ''
-            if not chunk:
-                continue
-            AI_message += chunk
-            self.signals.sio_queue.put(("next_chunk", chunk))
+                if event.data == "[DONE]":
+                    break
+
+                payload = json.loads(event.data)
+                chunk = payload['choices'][0]['delta'].get('content') or ''
+                if not chunk:
+                    continue
+                AI_message += chunk
+                self.signals.sio_queue.put(("next_chunk", chunk))
+                if self.interface:
+                    self.interface.stream_token(chunk)
+        finally:
+            stream_response.close()
+
+        if self.interface:
+            self.interface.stream_token("\n")
 
         # Append raw response bytes to the prompt details viewer
         raw_section = "\n\n═══ RAW RESPONSE ═══\n" + "\n".join(raw_events)
-        self.signals.last_full_prompt += raw_section
+        self.signals.last_full_prompt = self.signals.last_full_prompt + raw_section
 
         return AI_message, raw_events, self.llmState.next_cancelled
 
@@ -140,6 +149,8 @@ class AbstractLLMWrapper:
         self.signals.AI_thinking = True
         self.signals.new_message = False
         self.signals.sio_queue.put(("reset_next_message", None))
+        if self.interface:
+            self.interface._stream_buffer = ""
 
         data = self.prepare_payload()
 
