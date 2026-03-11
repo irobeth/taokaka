@@ -108,6 +108,7 @@ class Interface:
         ts = datetime.now().strftime("%H:%M:%S")
         with self._lock:
             self._entries.append((ts, source, str(message), None))
+        self.signals.log_entries = (self.signals.log_entries + [{"ts": ts, "source": source, "msg": str(message), "level": None}])[-200:]
         if self._raw_mode or not self._started:
             prefix = f"[{source}] " if source else ""
             self._real_stdout.write(f"{ts} {prefix}{message}\n")
@@ -129,6 +130,7 @@ class Interface:
         ts = datetime.now().strftime("%H:%M:%S")
         with self._lock:
             self._entries.append((ts, source, str(message), level.lower()))
+        self.signals.log_entries = (self.signals.log_entries + [{"ts": ts, "source": source, "msg": str(message), "level": level.lower()}])[-200:]
         if self._raw_mode:
             prefix = f"[{source}] " if source else ""
             lvl = level.upper()

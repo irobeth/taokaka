@@ -84,7 +84,7 @@ These run in their own threads on independent schedules, publishing to `signals.
 - **ZeitgeistExtractor** — Periodically summarizes conversation, extracts keywords, and attributes keywords to users who brought them up.
 - **KeywordExtractor** — Lightweight (no LLM), scans recent conversation for high-frequency non-stopword terms every 15s.
 - **DefinitionExtractor** — When zeitgeist produces unknown keywords, asks the LLM for a one-sentence definition and stores it. Definitions expire after 7 days and get refreshed. Also creates `about_user` memories linking users to topics they discussed.
-- **MoodExtractor** — After each prompt cycle, evaluates Tao's emotional state on Plutchik's wheel (3D: emotion, intensity, inertia). Tracks both global mood and per-subject feelings (users, topics, keywords) stored in Elasticsearch.
+- **MoodExtractor** — After each prompt cycle, evaluates Tao's emotional state on Plutchik's wheel (3D: emotion, intensity, inertia). Tracks both global mood and per-subject feelings (users, topics, keywords) stored in Elasticsearch. Maps emotions to intensity-variant emojis.
 
 ### Memory types
 
@@ -109,8 +109,8 @@ These run in their own threads on independent schedules, publishing to `signals.
 | Memory | [Elasticsearch](https://www.elastic.co/elasticsearch) hybrid search (BM25 + kNN vectors) |
 | Discord | [discord.py](https://github.com/Rapptz/discord.py) with voice support |
 | Dashboard | [Rich](https://github.com/Textualize/rich) terminal UI |
-| Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) dashboard (auto-started, port 3000) |
-| WebSocket | Full engine state feed at `ws://localhost:1979/ws/state` |
+| Frontend | [React](https://react.dev/) + [Vite](https://vite.dev/) IRC-style dashboard (auto-started, port 3000) |
+| WebSocket | Bidirectional state feed + command channel at `ws://localhost:1979/ws/state` |
 
 ## Dashboard
 

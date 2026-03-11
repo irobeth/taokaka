@@ -24,6 +24,29 @@ EMOTION_ANGLES = {
     "anticipation": 315,
 }
 
+# Emoji mapping: each emotion has [low, mid, high] intensity variants
+EMOTION_EMOJI = {
+    "joy":          ["🙂", "😄", "🤩"],
+    "trust":        ["🤝", "💛", "💖"],
+    "fear":         ["😟", "😨", "😱"],
+    "surprise":     ["😮", "😲", "🤯"],
+    "sadness":      ["😕", "😢", "😭"],
+    "disgust":      ["😒", "🤢", "🤮"],
+    "anger":        ["😤", "😠", "🤬"],
+    "anticipation": ["🤔", "👀", "⚡"],
+}
+
+
+def emoji_for_mood(emotion, intensity=0.5):
+    """Pick the best emoji for an emotion at a given intensity (0-1)."""
+    variants = EMOTION_EMOJI.get(emotion, ["❓", "❓", "❓"])
+    if intensity < 0.35:
+        return variants[0]
+    elif intensity < 0.7:
+        return variants[1]
+    else:
+        return variants[2]
+
 
 def mood_to_cartesian(emotion, intensity):
     """Convert emotion + intensity to x,y for blending."""
@@ -65,6 +88,7 @@ class MoodExtractor(Module):
             "summary": "Tao is alert and ready for whatever happens next.",
             "shift": "Something exciting or funny could easily tip her into joy.",
             "timestamp": time.time(),
+            "emoji": emoji_for_mood("anticipation", 0.4),
         }
         self.signals.extractor_signals["subject_moods"] = {}
 
@@ -260,8 +284,9 @@ class MoodExtractor(Module):
             documents=[doc],
             metadatas=[meta],
         )
-        self._log(f"  {name}: {emotion} (i={intensity}, inertia={inertia}) — {reason[:60]}")
-        return {"emotion": emotion, "intensity": intensity, "inertia": inertia, "reason": reason}
+        emj = emoji_for_mood(emotion, intensity)
+        self._log(f"  {emj} {name}: {emotion} (i={intensity}, inertia={inertia}) — {reason[:60]}")
+        return {"emotion": emotion, "intensity": intensity, "inertia": inertia, "reason": reason, "emoji": emj}
 
     def _evaluate_mood(self):
         exchange = self._build_recent_exchange()
@@ -285,9 +310,10 @@ class MoodExtractor(Module):
         # Update global mood with inertia blending
         old_mood = self.signals.extractor_signals.get("mood", {})
         blended = self._apply_inertia(old_mood, overall)
+        blended["emoji"] = emoji_for_mood(blended["emotion"], blended["intensity"])
         self.signals.extractor_signals["mood"] = blended
         self._log(
-            f"Overall: {blended['emotion']} "
+            f"Overall: {blended['emoji']} {blended['emotion']} "
             f"(i={blended['intensity']}, inertia={blended['inertia']}) "
             f"— {blended['summary']}"
         )

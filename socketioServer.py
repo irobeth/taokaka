@@ -265,11 +265,18 @@ class SocketIOServer:
                     "tts_ready": s.tts_ready,
                     "tts_engine": s.tts_engine,
                 },
+                "toggles": {
+                    "stt_enabled": self.stt.enabled,
+                    "tts_enabled": self.tts.enabled,
+                    "llm_enabled": self.llmWrapper.API.get_LLM_status(),
+                },
                 "timing": {
                     "last_message_time": s.last_message_time,
                     "patience": s.patience,
                     "seconds_since_last": round(time.time() - s.last_message_time, 1) if s.last_message_time else 0,
                 },
+                "alertness": s.alertness,
+                "profanity_rating": s.max_profanity_severity,
                 "discord": {
                     "connected": disc_connected,
                     "members": disc_members,
@@ -284,6 +291,7 @@ class SocketIOServer:
                     for k, v in s.extractor_signals.items()
                 },
                 "zeitgeist": s.zeitgeist,
+                "last_full_prompt": s.last_full_prompt,
                 "memories": {
                     "total": len(s.all_memories),
                     "recalled": s.last_recalled,
@@ -293,7 +301,62 @@ class SocketIOServer:
                 },
                 "stt_workers": s.stt_workers,
                 "recent_thoughts": s.recent_thoughts[-10:],
+                "log_entries": s.log_entries[-100:],
             }
+
+        def _handle_ws_command(data):
+            """Handle commands received via WebSocket JSON messages."""
+            cmd = data.get("cmd")
+            if cmd == "send_message":
+                text = data.get("text", "").strip()
+                if text:
+                    from constants import HOST_NAME
+                    attributed = f"{HOST_NAME}: {text}" if HOST_NAME else text
+                    self.signals.history.append({"role": "user", "content": attributed, "timestamp": time.time()})
+                    self.signals.last_message_time = time.time()
+                    self.signals.new_message = True
+            elif cmd == "toggle_stt":
+                self.stt.API.set_STT_status(not self.stt.enabled)
+            elif cmd == "toggle_tts":
+                self.tts.API.set_TTS_status(not self.tts.enabled)
+            elif cmd == "toggle_llm":
+                current = self.llmWrapper.API.get_LLM_status()
+                self.llmWrapper.API.set_LLM_status(not current)
+            elif cmd == "toggle_audio_mode":
+                self.signals.audio_mode = "discord" if self.signals.audio_mode == "local" else "local"
+            elif cmd == "cancel_next":
+                self.llmWrapper.API.cancel_next()
+            elif cmd == "abort_tts":
+                self.tts.API.abort_current()
+            elif cmd == "nuke_history":
+                self.signals.history = []
+            elif cmd == "force_memory":
+                mid = data.get("id")
+                if mid:
+                    if mid in self.signals.forced_memory_ids:
+                        self.signals.forced_memory_ids.discard(mid)
+                    else:
+                        self.signals.forced_memory_ids.add(mid)
+            elif cmd == "delete_memory":
+                mid = data.get("id")
+                if mid and "memory" in self.modules:
+                    self.modules["memory"].API.delete_memory(mid)
+            elif cmd == "factory_reset":
+                if "memory" in self.modules:
+                    self.modules["memory"].API.wipe()
+                self.signals.history = []
+                self.signals.zeitgeist = ""
+                self.signals.extractor_signals.clear()
+                self.signals.recent_thoughts = []
+                self.signals.recent_memories = []
+                self.signals.forced_memory_ids = set()
+            elif cmd == "shutdown":
+                self.signals.terminate = True
+                self.stt.API.shutdown()
+            elif cmd == "set_profanity":
+                level = data.get("level")
+                if isinstance(level, int) and 1 <= level <= 4:
+                    self.signals.max_profanity_severity = level
 
         async def ws_handler(request):
             ws = aiohttp.web.WebSocketResponse()
@@ -301,7 +364,12 @@ class SocketIOServer:
             self._ws_clients.add(ws)
             try:
                 async for msg in ws:
-                    pass  # read loop keeps connection alive
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        try:
+                            data = json.loads(msg.data)
+                            _handle_ws_command(data)
+                        except (json.JSONDecodeError, Exception):
+                            pass
             finally:
                 self._ws_clients.discard(ws)
             return ws

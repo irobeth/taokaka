@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.2.4 — 2026-03-11
+
+### New Features
+- **React frontend overhaul** — IRC-style 3-column layout (memories/recalled/thoughts/zeitgeist/mood/prompt/pipeline tabs | chat/logs/details tabs | status/online sidebar)
+- **Mood panel** — dedicated tab with overall mood emoji + intensity bar, per-subject feelings with emoji indicators
+- **Mood emoji mapping** — intensity-variant emojis for all 8 Plutchik emotions (low/mid/high), shown in mood panel, injector, and logs
+- **Details panel** — click any memory or thought in the left pane to view full details in the center pane
+- **Shutdown button** — graceful backend shutdown from the frontend (next to Live indicator), calls `stt.API.shutdown()` to unblock audio listeners
+- **Startup logs in Logs tab** — backend launcher output streams directly to the Logs tab instead of a floating overlay
+- **Disconnected mode** — dashboard usable offline with browsable panels; backend launcher inline in header
+- **WebSocket command channel** — bidirectional JSON commands over the same WS connection used for state
+- **Semi-transparent panels** — backdrop blur over fixed Taokaka background image
+- **Backend state extensions** — toggles, alertness, profanity_rating, last_full_prompt, log_entries in WS state snapshot
+- **Vite backend launcher API** — `/api/start-backend`, `/api/backend-status`, `/api/stop-backend` endpoints
+
+### Changes
+- Mood injector prefixes overall and per-subject lines with emoji
+- Log/trace entries piped through `signals.log_entries` to frontend via WebSocket
+- Chat input bar nearly opaque (`rgba(10, 10, 15, 0.97)`) for readability
+
 ## 0.2.3 — 2026-03-11
 
 ### New Features

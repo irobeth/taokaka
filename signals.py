@@ -30,6 +30,7 @@ class Signals:
         self.extractor_signals = {}     # shared dict for extractor→injector data
         self.max_profanity_severity = 2 # 1=mild, 2=moderate, 3=explicit, 4=extreme
         self.recent_thoughts = []       # list of {"thought": str, "timestamp": float}
+        self.log_entries = []           # list of {"ts": str, "source": str, "msg": str, "level": str|None}
 
         # This flag indicates to all threads that they should immediately terminate
         self._terminate = False

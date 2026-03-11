@@ -32,7 +32,8 @@ class MoodInjector(Module):
         else:
             strength = "faintly"
 
-        text = f"<MOOD>\nTaokaka {strength} feels {emotion}."
+        emoji = mood.get("emoji", "")
+        text = f"<MOOD>\n{emoji} Taokaka {strength} feels {emotion}."
         if summary:
             text += f" {summary}"
         if shift:
@@ -47,7 +48,8 @@ class MoodInjector(Module):
                 si = sm.get("intensity", 0)
                 reason = sm.get("reason", "")
                 if em and si >= 0.3:  # only inject notable feelings
-                    text += f"\n- {name}: {em}"
+                    emj = sm.get("emoji", "")
+                    text += f"\n- {emj} {name}: {em}"
                     if reason:
                         text += f" — {reason}"
 
